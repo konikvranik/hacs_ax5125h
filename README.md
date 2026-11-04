@@ -1,118 +1,129 @@
 # Hisense AX5125H Soundbar (HACS)
 
-Home Assistant custom integrace pro soundbar **Hisense AX5125H** (5.1.2, eARC)
-ovládaný přes **HDMI-CEC** pomocí reverzně inženýrenského vendor protokolu
-**EZPlay** (Hisense, OUI `A8:82:00`). Funguje i bez originální Hisense/Roku TV —
-integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
+**[English](README.md)** | [Čeština](README.cs.md)
 
-![podpora](https://img.shields.io/badge/protocol-EZPlay-blue) ![CEC](https://img.shields.io/badge/transport-HDMI--CEC-green)
+Home Assistant custom integration for the **Hisense AX5125H** soundbar
+(5.1.2, eARC), controlled over **HDMI-CEC** using the reverse-engineered
+vendor protocol **EZPlay** (Hisense, OUI `A8:82:00`). Works even without the
+original Hisense/Roku TV — the integration impersonates the TV itself
+(vendor ID spoofing over CEC).
 
-## Co umí
+![protocol](https://img.shields.io/badge/protocol-EZPlay-blue) ![CEC](https://img.shields.io/badge/transport-HDMI--CEC-green) ![i18n](https://img.shields.io/badge/UI-EN%20%2B%20CZ-brightgreen)
 
-| Entita | Typ | Rozsah | Živě ověřeno |
+## Features
+
+| Entity | Type | Range | Verified live |
 |---|---|---|---|
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
 | Bass / Treble | number | −5 … +5 | ✅ |
 | Surround | select | PURE / PRO / OFF | ✅ |
-| Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
-| Napájení | sensor | on / standby / turning on/off (CEC 0x8F→0x90) | ✅ |
-| Hlasitost + mute | sensor | 0–100 % (CEC 0x71→0x7D) | ❓ best-effort — náš kus na 0x71 mlčí, senzor zůstává unknown (tlačítka fungují) |
+| Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
+| Power | sensor | on / standby / turning on/off (CEC 0x8F→0x90) | ✅ |
+| Volume + mute | sensor | 0–100 % (CEC 0x71→0x7D) | ❓ best-effort — our unit ignores 0x71, sensor stays unknown (buttons still work) |
 | Volume +/−, Mute | button | CEC UCP (0x44/0x45) | ✅ |
-| **Vstup → ARC** | select | SAM Request jako TV (`0;5;0x70,0x00,0x00`) | ✅ |
-| **Vstup → HDMI IN** | select | Active Source za gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
-| Push změny z menu/ovladače | — | EZPlay `A5` inform → okamžitá aktualizace entit | ✅ |
-| EZPlay support features | sensor (diagnostika) | `91 9F 06` | ✅ |
-| Active source (sběrnice) | sensor (diagnostika) | 0x82 broadcasty | ✅ |
-| Služby | `send_raw`, `volume_up/down`, `mute_toggle` | pojistka proti destruktivním subopcodům | ✅ |
+| **Input → ARC** | select | System Audio Mode Request as the TV (`0;5;0x70,0x00,0x00`) | ✅ |
+| **Input → HDMI IN** | select | Active Source as the gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
+| Push changes from menu/remote | — | EZPlay `A5` inform → instant entity updates | ✅ |
+| EZPlay support features | sensor (diagnostic) | `91 9F 06` | ✅ |
+| Active source (bus) | sensor (diagnostic) | 0x82 broadcasts | ✅ |
+| Services | `send_raw`, `volume_up/down`, `mute_toggle` | guard rails against destructive subopcodes | ✅ |
 
-Neural:X / Virtual:X a vstupy OPT/AUX/USB/BT **nejsou** přes CEC dostupné
-(definitivně ověřeno — viz research v odkazech níže).
+Neural:X / Virtual:X and the OPT/AUX/USB/BT inputs are **not** reachable over
+CEC (definitively verified — see the research notes below).
 
-## Transporty (cesta k CEC sběrnici)
+## Transports (the path to the CEC bus)
 
-| Transport | Konfigurace | Poznámky |
+| Transport | Configuration | Notes |
 |---|---|---|
-| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Doporučeno. Vyžaduje [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) s MQTT; plná funkcionalita včetně podvržení zdrojových adres |
-| ESPHome gateway (native API) | služba `esphome.<node>_cec_send` | Bez reflashe umí jen rámce od gateway (0xE → HDMI switch); s přidanou akcí `cec_send_src` (viz níže) plná funkčnost |
-| **pyCEC TCP bridge** | host + port 9526 | [pyCEC](https://github.com/konikvranik/pycec) server (`python3 -m pycec`) na stroji s CEC adaptérem; HA se připojuje jako klient — bez libcec v HA |
-| libcec local | systémový modul `cec` | libcec python binding přímo v HA (HA Core ve venv/containeru s nainstalovaným libcec; **ne** HAOS) |
+| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Recommended. Requires an [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) with MQTT; full functionality incl. spoofed source addresses |
+| ESPHome gateway (native API) | service `esphome.<node>_cec_send` | Without a reflash it can only send frames from the gateway (0xE → HDMI switching); with the added `cec_send_src` action (see below) fully functional |
+| **pyCEC TCP bridge** | host + port 9526 | [pyCEC](https://github.com/konikvranik/pycec) server (`python3 -m pycec`) on a machine with a CEC adapter; HA connects as a plain client — no libcec needed inside HA |
+| libcec local | system module `cec` | libcec python bindings directly inside HA (HA Core in a venv/container with libcec installed; **not** HAOS) |
 
-Všechny transporty umí odesílat rámce s **libovolnou zdrojovou adresou** — to je
-klíčové: EZPlay příkazy musí jít od TV (adresa 0), přepnutí na HDMI IN naopak od
-switch-role zařízení z eARC strany (0xE = gateway).
+All transports can send frames with an **arbitrary source address** — that is
+the key: EZPlay commands must come from the TV (address 0), while switching to
+HDMI IN must come from a switch-role device on the eARC side (0xE = gateway).
 
-### Poznámka k ESPHome gatewayi
+### ESPHome gateway notes
 
-1. **CEC Bus Log Enabled** — gateway publikuje `cec_gateway/rx` (a vysílá event
-   `esphome.cec_rx`) jen se zapnutým přepínačem bus logu. Integrace umí tento
-   switch **zapnout automaticky** — v config flow se nabídne k výběru.
-2. **`cec_send_src`** (jen native API transport) — výchozí akce `cec_send`
-   odesílá vždy od gateway. Přidejte do configu gatewaye akci s parametrem
-   `source` (viz ukázka v dokumentaci ke gatewayi), pak native transport umí i
-   EZPlay příkazy za TV.
+1. **CEC Bus Log Enabled** — the gateway only publishes `cec_gateway/rx` (and
+   fires the `esphome.cec_rx` event) while the bus log switch is on. The
+   integration can **enable this switch automatically** — it is offered in the
+   config flow.
+2. **`cec_send_src`** (native API transport only) — the stock `cec_send`
+   action always sends from the gateway address. Add an action with a `source`
+   parameter to the gateway config (see the gateway docs), and the native
+   transport can send EZPlay commands as the TV too.
 
-## Instalace (HACS)
+## Installation (HACS)
 
 1. HACS → ⋮ → *Custom repositories* → `https://github.com/konikvranik/hacs_ax5125h`,
-   kategorie **Integration**
+   category **Integration**
 2. HACS → Integrations → **Hisense AX5125H Soundbar** → Download
 3. Restart HA
-4. Nastavení → Zařízení a služby → **Přidat integraci** → *Hisense AX5125H
-   Soundbar* → zvolit transport → validace handshake → hotovo
+4. Settings → Devices & Services → **Add Integration** → *Hisense AX5125H
+   Soundbar* → pick a transport → handshake validation → done
 
-Ručně: zkopírujte `custom_components/ax5125h/` do `config/custom_components/`.
+Manual: copy `custom_components/ax5125h/` into `config/custom_components/`.
 
-## Konfigurace
+The UI is localized (English + Czech); HA picks the language automatically.
 
-Config flow zeptá na parametry transportu, pak na společné parametry CEC
-(v závorkách výchozí hodnoty pro typickou topologii):
+## Configuration
 
-- **Poll interval** (30 s; min 10 s) — každý poll = power status, all-params
-  dotaz (A0→A1) a audio status; mimo poll chodí push změny (A5)
-- **Fyzická adresa HDMI IN** (`3.1.0.0`) — kam přepínat Active Source
-- **Adresa TV** (0), **soundbaru** (5), **gatewaye** (0xE = 14)
+The config flow asks for transport parameters, then for shared CEC parameters
+(defaults for the usual topology in parentheses):
 
-Změna později přes *Konfigurovat* u záznamu integrace.
+- **Poll interval** (30 s; min 10 s) — each poll = power status, the
+  all-params query (A0→A1) and audio status; push changes (A5) arrive
+  out-of-band
+- **Physical address of HDMI IN** (`3.1.0.0`) — where Active Source switches to
+- **TV address** (0), **soundbar** (5), **gateway** (0xE = 14)
 
-## Jak to funguje (EZPlay v kostce)
+Change later via *Configure* on the integration entry.
+
+## How it works (EZPlay in a nutshell)
 
 ```
-[src:dst] A0 A8 82 00 <subopcode> [payload...]     ← vendor rámec (odesílatel TV)
-TV→F:     87 A8 82 00                              ← podvrh TV vendor ID (session ~60 s)
+[src:dst] A0 A8 82 00 <subopcode> [payload...]     ← vendor frame (sender: TV)
+TV→F:     87 A8 82 00                              ← TV vendor ID spoof (session ~60 s)
 TV→SB:    A0 A8 82 00 A0                           ← Give_All_Params → A1 report
 TV→SB:    A0 A8 82 00 A2 <item> <val>              ← Set_Item_Value → A4 ack
-SB→TV:    A0 A8 82 00 A5 <item> <val>              ← push při změně z menu/ovladače
+SB→TV:    A0 A8 82 00 A5 <item> <val>              ← push on menu/remote change
 ```
 
 Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND (0–2).
-Čtení: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (nejspolehlivější).
+Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 
-**Pojistky proti bricknutí** (věci, které integrace odmítá udělat):
+**Brick protection** (things the integration refuses to do):
 
-- subopcody `A6` (Reset_All_Params), `B0`/`B2` (Give_Item_Range — na AX5125H
-  destruktivní) nelze odeslat ani přes službu `send_raw`
-- holé `A2 <item>` bez hodnoty (není to GET — zapíše garbage) odmítnuto
-- dimmer zůstává v bezpečném rozsahu 0–3 (5+ korrumpuje menu)
-- bass/treble se zapisují jen v −5…+5 (nibble 11+ u RTVR korrumpuje NVRAM)
+- subopcodes `A6` (Reset_All_Params) and `B0`/`B2` (Give_Item_Range —
+  destructive on the AX5125H) cannot be sent, not even via `send_raw`
+- a bare `A2 <item>` without a value (it is not a GET — it writes garbage)
+  is rejected
+- dimmer stays within the safe 0–3 range (5+ corrupts the menu)
+- bass/treble are only written within −5…+5 (nibble 11+ corrupts NVRAM via RTVR)
 
-## Omezení / poznámky
+## Limitations / notes
 
-- Vstup HDMI IN se přepíná Active Source broadcastem za gateway — přepnutí
-  může vyvolat přechodový Standby report soundbaru, na který Kodi (libcec)
-  občas reaguje uspáním (klient `standby_pc_on_tv_standby`). Existující
-  chování, viz dokumentace.
-- Aktuální vstup je inference (Active Source broadcasty + optimistická
-  aktualizace po příkazu) — soundbar svůj vstup sám nehlásí.
-- Hlasitost je jen relativní (UCP ± / mute) + čtení 0x7D; EZPlay `AC
-  Set_Volume` má neověřený formát hodnoty a záměrně se nepoužívá.
-- Soundbar po rebootu ~30 s ignoruje vendor příkazy (standardní CEC init).
+- Switching to HDMI IN is done via an Active Source broadcast as the gateway —
+  the switch can trigger a transient Standby report from the soundbar, which
+  Kodi (libcec) sometimes reacts to by going to sleep
+  (`standby_pc_on_tv_standby`). Existing behaviour, see the docs.
+- The current input is inferred (Active Source broadcasts + optimistic update
+  after a command) — the soundbar does not report its input by itself.
+- Volume is relative only (UCP ± / mute) plus the 0x7D readout; the EZPlay
+  `AC Set_Volume` opcode has an unverified value format and is deliberately
+  unused.
+- After a reboot the soundbar ignores vendor commands for ~30 s (standard CEC
+  init).
 
-## Výzkum
+## Research
 
-Protokol byl z Reverzní analýzy firmware AX3120G + živými testy na AX5125H
-(listopad 2025). Kompletní dokumentace (opcody, tabulky hodnot, RTVR vrstva,
-mrtvé cesty): repozitář `home_assistant_config/esphome/docs/soundbar-ax5125h/`.
+The protocol comes from reverse engineering the AX3120G firmware plus live
+tests on the AX5125H (November 2025). Full documentation (opcodes, value
+tables, the RTVR layer, dead ends): repository
+`home_assistant_config/esphome/docs/soundbar-ax5125h/`.
 
-## Licence
+## License
 
 [MIT](LICENSE)

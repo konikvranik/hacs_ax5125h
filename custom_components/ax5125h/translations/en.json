@@ -3,65 +3,65 @@
     "step": {
       "user": {
         "title": "Hisense AX5125H Soundbar",
-        "description": "Zvolte CEC transport, přes který bude integrace se soundbarem komunikovat.",
+        "description": "Pick the CEC transport the integration will use to talk to the soundbar.",
         "data": {
           "transport": "Transport"
         }
       },
       "esphome_mqtt": {
         "title": "ESPHome CEC gateway (MQTT)",
-        "description": "MQTT topics ESPHome gatewaye hdmi-cec-gateway. Vyžaduje zapnutou MQTT integraci v HA.",
+        "description": "MQTT topics of the ESPHome hdmi-cec-gateway. Requires the MQTT integration to be set up in HA.",
         "data": {
           "prefix": "MQTT topic prefix",
-          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“ (auto-zapnutí; gateway bez něj nepublikuje rx)"
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled” (auto-enable; without it the gateway does not publish rx)"
         }
       },
       "esphome": {
         "title": "ESPHome CEC gateway (native API)",
-        "description": "Služba esphome.<název>_cec_send. Pro plnou funkčnost (EZPlay za TV) potřebuje gateway akci cec_send_src.",
+        "description": "Service esphome.<name>_cec_send. For full functionality (EZPlay as TV) the gateway needs the cec_send_src action.",
         "data": {
-          "service_base": "ESPHome služba",
-          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“ (auto-zapnutí)"
+          "service_base": "ESPHome service",
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled” (auto-enable)"
         }
       },
       "pycec_tcp": {
         "title": "pyCEC TCP bridge (libcec remote)",
-        "description": "Připojení k pyCEC serveru (python3 -m pycec) běžícím na stroji s CEC adaptérem.",
+        "description": "Connect to a pyCEC server (python3 -m pycec) running on a machine with a CEC adapter.",
         "data": {
           "host": "Host",
           "port": "Port"
         }
       },
       "libcec": {
-        "title": "libcec (lokální adapter)",
-        "description": "Vyžaduje systémový python modul cec (libcec) na stroji s HA — nefunguje v HAOS bez něj.",
+        "title": "libcec (local adapter)",
+        "description": "Requires the system python module cec (libcec) on the HA machine — does not work on HAOS without it.",
         "data": {
-          "adapter": "Adapter (COM port; prázdné = první nalezený)"
+          "adapter": "Adapter (COM port; empty = first found)"
         }
       },
       "common": {
-        "title": "Parametry CEC sběrnice",
-        "description": "Výchozí hodnoty odpovídají standardní topologii: TV=0, soundbar (AudioSystem)=5, gateway=0xE, Kodi za HDMI IN soundbaru na 3.1.0.0.",
+        "title": "CEC bus parameters",
+        "description": "Defaults match the usual topology: TV=0, soundbar (AudioSystem)=5, gateway=0xE, Kodi behind the soundbar HDMI IN at 3.1.0.0.",
         "data": {
           "poll_interval": "Poll interval (s)",
-          "hdmi_pa": "Fyzická adresa HDMI IN (pro přepnutí na HDMI)",
-          "tv_addr": "Logická adresa TV",
-          "sb_addr": "Logická adresa soundbaru",
-          "gw_addr": "Logická adresa gatewaye/switch role"
+          "hdmi_pa": "Physical address of HDMI IN (for switching to HDMI)",
+          "tv_addr": "TV logical address",
+          "sb_addr": "Soundbar logical address",
+          "gw_addr": "Gateway / switch-role logical address"
         }
       }
     },
     "error": {
-      "mqtt_missing": "MQTT integrace není v HA nastavená.",
-      "esphome_services_missing": "Nenašel jsem službu esphome.*_cec_send — nejprve nastavte ESPHome integraci.",
-      "poll_too_fast": "Minimální poll interval je 10 s (šetřit CEC sběrnici).",
-      "bad_pa": "Fyzická adresa musí být ve tvaru 3.1.0.0.",
-      "transport_error": "Transport selhal (MQTT/TCP/libcec nedostupný).",
-      "no_response": "Soundbar neodpověděl — zkontrolujte zapnutý CEC bus log, adresy a zapnutý soundbar.",
-      "invalid_transport": "Neznámý transport."
+      "mqtt_missing": "The MQTT integration is not configured in HA.",
+      "esphome_services_missing": "No esphome.*_cec_send service found — set up the ESPHome integration first.",
+      "poll_too_fast": "Minimum poll interval is 10 s (be kind to the CEC bus).",
+      "bad_pa": "Physical address must look like 3.1.0.0.",
+      "transport_error": "Transport failed (MQTT/TCP/libcec unreachable).",
+      "no_response": "Soundbar did not answer — check that the CEC bus log is enabled, the addresses are right and the soundbar is on.",
+      "invalid_transport": "Unknown transport."
     },
     "abort": {
-      "already_configured": "Tato kombinace transportu a adresy už je nastavená."
+      "already_configured": "This transport + address combination is already configured."
     }
   },
   "options": {
@@ -69,11 +69,11 @@
       "init": {
         "data": {
           "poll_interval": "Poll interval (s)",
-          "hdmi_pa": "Fyzická adresa HDMI IN",
-          "tv_addr": "Logická adresa TV",
-          "sb_addr": "Logická adresa soundbaru",
-          "gw_addr": "Logická adresa gatewaye",
-          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“"
+          "hdmi_pa": "Physical address of HDMI IN",
+          "tv_addr": "TV logical address",
+          "sb_addr": "Soundbar logical address",
+          "gw_addr": "Gateway logical address",
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled”"
         }
       }
     }
@@ -154,38 +154,38 @@
   },
   "services": {
     "send_raw": {
-      "name": "Odeslat raw CEC rámec",
-      "description": "Pošle libovolný CEC rámec přes transport integrace. Pojistka: destruktivní subopcody (A6/B0/B2) a holé A2 jsou odmítnuty.",
+      "name": "Send raw CEC frame",
+      "description": "Sends an arbitrary CEC frame through the integration transport. Guard rails: destructive subopcodes (A6/B0/B2) and a bare A2 are rejected.",
       "fields": {
         "entity_id": {
-          "name": "Entita",
-          "description": "Libovolná entita soundbaru."
+          "name": "Entity",
+          "description": "Any soundbar entity."
         },
         "source": {
-          "name": "Zdrojová adresa",
+          "name": "Source address",
           "description": "0 = TV, 5 = soundbar, 14 = gateway."
         },
         "destination": {
-          "name": "Cílová adresa",
+          "name": "Destination address",
           "description": "5 = soundbar, 15 = broadcast."
         },
         "data": {
           "name": "Data",
-          "description": "Opcode + payload, např. 0xA0,0xA8,0x82,0x00,0xA3,0x05."
+          "description": "Opcode + payload, e.g. 0xA0,0xA8,0x82,0x00,0xA3,0x05."
         }
       }
     },
     "volume_up": {
-      "name": "Hlasitost +",
-      "description": "Volume up přes CEC UCP."
+      "name": "Volume up",
+      "description": "Volume up via CEC UCP."
     },
     "volume_down": {
-      "name": "Hlasitost −",
-      "description": "Volume down přes CEC UCP."
+      "name": "Volume down",
+      "description": "Volume down via CEC UCP."
     },
     "mute_toggle": {
-      "name": "Přepnout mute",
-      "description": "Mute toggle přes CEC UCP."
+      "name": "Toggle mute",
+      "description": "Mute toggle via CEC UCP."
     }
   }
 }

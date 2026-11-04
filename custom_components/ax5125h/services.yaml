@@ -1,21 +1,21 @@
 send_raw:
-  name: Odeslat raw CEC rámec
+  name: Send raw CEC frame
   description: >-
-    Pošle libovolný CEC rámec přes transport integrace (zdrojová adresa je
-    podvržitelná — takto se posílají i EZPlay příkazy za TV).
-    Pojistka: subopcody 0xA6/0xB0/0xB2 (destruktivní na AX5125H) a holé A2
-    bez hodnoty jsou odmítnuty.
+    Sends an arbitrary CEC frame through the integration transport (source
+    address can be spoofed — this is how EZPlay commands are sent as the TV).
+    Guard rails: subopcodes 0xA6/0xB0/0xB2 (destructive on AX5125H) and a bare
+    A2 without a value are rejected.
   fields:
     entity_id:
-      name: Entita
-      description: Libovolná entita soundbaru (určuje konfiguraci).
+      name: Entity
+      description: Any soundbar entity (selects the config entry).
       required: false
       selector:
         entity:
           integration: ax5125h
     source:
-      name: Zdrojová adresa
-      description: Logická adresa odesílatele (0 = TV, 5 = soundbar, 14 = gateway).
+      name: Source address
+      description: Logical address of the sender (0 = TV, 5 = soundbar, 14 = gateway).
       required: true
       example: 0
       selector:
@@ -24,8 +24,8 @@ send_raw:
           max: 15
           step: 1
     destination:
-      name: Cílová adresa
-      description: Logická adresa příjemce (5 = soundbar, 15 = broadcast).
+      name: Destination address
+      description: Logical address of the receiver (5 = soundbar, 15 = broadcast).
       required: true
       example: 5
       selector:
@@ -35,43 +35,43 @@ send_raw:
           step: 1
     data:
       name: Data
-      description: "Bajty opcode+payload, 0x nebo dec (např. '0xA0,0xA8,0x82,0x00,0xA0')."
+      description: "Opcode + payload bytes, 0x or decimal (e.g. '0xA0,0xA8,0x82,0x00,0xA0')."
       required: true
       example: "0xA0,0xA8,0x82,0x00,0xA3,0x05"
       selector:
         text:
 
 volume_up:
-  name: Hlasitost +
-  description: Volume up přes CEC UCP (User Control Pressed/Released).
+  name: Volume up
+  description: Volume up via CEC UCP (User Control Pressed/Released).
   fields:
     entity_id:
-      name: Entita
-      description: Libovolná entita soundbaru.
+      name: Entity
+      description: Any soundbar entity.
       required: true
       selector:
         entity:
           integration: ax5125h
 
 volume_down:
-  name: Hlasitost −
-  description: Volume down přes CEC UCP.
+  name: Volume down
+  description: Volume down via CEC UCP.
   fields:
     entity_id:
-      name: Entita
-      description: Libovolná entita soundbaru.
+      name: Entity
+      description: Any soundbar entity.
       required: true
       selector:
         entity:
           integration: ax5125h
 
 mute_toggle:
-  name: Přepnout mute
-  description: Mute toggle přes CEC UCP.
+  name: Toggle mute
+  description: Mute toggle via CEC UCP.
   fields:
     entity_id:
-      name: Entita
-      description: Libovolná entita soundbaru.
+      name: Entity
+      description: Any soundbar entity.
       required: true
       selector:
         entity:
