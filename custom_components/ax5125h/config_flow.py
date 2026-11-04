@@ -14,13 +14,11 @@ from homeassistant.core import HomeAssistant, callback
 
 from .client import EzplayClient, EzplayTimeout
 from .const import (
-    CONF_ADAPTER,
     CONF_BUS_LOG_SWITCH,
     CONF_GW_ADDR,
     CONF_HDMI_PA,
-    CONF_HOST,
     CONF_POLL_INTERVAL,
-    CONF_PORT,
+    CONF_POWER_ENTITY,
     CONF_PREFIX,
     CONF_SB_ADDR,
     CONF_SERVICE_BASE,
@@ -29,7 +27,6 @@ from .const import (
     DEFAULT_GW_ADDR,
     DEFAULT_HDMI_PA,
     DEFAULT_POLL_INTERVAL,
-    DEFAULT_PORT,
     DEFAULT_PREFIX,
     DEFAULT_SB_ADDR,
     DEFAULT_TV_ADDR,
@@ -39,8 +36,7 @@ from .const import (
     TRANSPORTS,
     TRANSPORT_ESPHOME,
     TRANSPORT_ESPHOME_MQTT,
-    TRANSPORT_LIBCEC,
-    TRANSPORT_PYCEC_TCP,
+    TRANSPORT_HDMI_CEC,
 )
 from .ezplay import EQ_OPTIONS, pa_from_str
 from .transports import TransportError, build_transport
@@ -48,41 +44,28 @@ from .transports import TransportError, build_transport
 _LOGGER = logging.getLogger(__name__)
 
 TRANSPORT_LABELS = {
-    TRANSPORT_ESPHOME_MQTT: "ESPHome HDMI-CEC gateway (MQTT) — doporučeno",
+    TRANSPORT_ESPHOME_MQTT: "ESPHome HDMI-CEC gateway (MQTT) — recommended",
     TRANSPORT_ESPHOME: "ESPHome HDMI-CEC gateway (native API)",
-    TRANSPORT_PYCEC_TCP: "pyCEC TCP bridge (libcec remote)",
-    TRANSPORT_LIBCEC: "libcec (lokální adapter)",
+    TRANSPORT_HDMI_CEC: "HDMI-CEC integration (configured in HA YAML)",
 }
 
-STEP_ESPHOME_MQTT = vol.Schema(
-    {
-        vol.Required(CONF_PREFIX, default=DEFAULT_PREFIX): str,
-        vol.Optional(CONF_BUS_LOG_SWITCH, description="bus_log_suggestion"): str,
-    }
-)
-STEP_ESPHOME = vol.Schema(
-    {
-        vol.Required(CONF_SERVICE_BASE): str,
-        vol.Optional(CONF_BUS_LOG_SWITCH, description="bus_log_suggestion"): str,
-    }
-)
-STEP_PYCEC_TCP = vol.Schema(
-    {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-    }
-)
-STEP_LIBCEC = vol.Schema({vol.Optional(CONF_ADAPTER, default=""): str})
 
-STEP_COMMON = vol.Schema(
-    {
-        vol.Required(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): int,
-        vol.Required(CONF_HDMI_PA, default=DEFAULT_HDMI_PA): str,
-        vol.Optional(CONF_TV_ADDR, default=DEFAULT_TV_ADDR): int,
-        vol.Optional(CONF_SB_ADDR, default=DEFAULT_SB_ADDR): int,
-        vol.Optional(CONF_GW_ADDR, default=DEFAULT_GW_ADDR): int,
-    }
-)
+def _bus_log_switches(hass: HomeAssistant) -> list[str]:
+    """Switch entity „CEC Bus Log Enabled".
+
+    POZOR: hass.states.async_all() historicky vracel entity_id stringy,
+    novější HA vrací State objekty — zvládáme obě varianty.
+    """
+    found = []
+    for entry in hass.states.async_all("switch"):
+        entity_id = entry if isinstance(entry, str) else entry.entity_id
+        if "cec_bus_log" in entity_id:
+            found.append(entity_id)
+            continue
+        state = hass.states.get(entity_id)
+        if state is not None and state.name == "CEC Bus Log Enabled":
+            found.append(entity_id)
+    return sorted(found)
 
 
 def _esphome_service_bases(hass: HomeAssistant) -> list[str]:
@@ -96,20 +79,20 @@ def _esphome_service_bases(hass: HomeAssistant) -> list[str]:
     return sorted(bases)
 
 
-def _bus_log_switches(hass: HomeAssistant) -> list[str]:
-    found = []
-    for state in hass.states.async_all("switch"):
-        if "cec_bus_log" in state.entity_id or state.name == "CEC Bus Log Enabled":
-            found.append(state.entity_id)
-    return sorted(found)
-
-
 async def _async_validate(hass: HomeAssistant, data: dict) -> tuple[dict, str | None]:
     """Živý handshake přes vybraný transport. Vrátí (data, error_key)."""
     try:
         transport = build_transport(hass, data)
     except (KeyError, ValueError):
         return {}, "invalid_transport"
+
+    if not getattr(transport, "supports_rx", True):
+        # rx-less (hdmi_cec integrace): handshake bez rx nedává smysl;
+        # stačí ověřit, že tx cesta (služba) existuje
+        if not hass.services.has_service("hdmi_cec", "send_command"):
+            return {}, "hdmi_cec_missing"
+        return {"power": "on"}, None
+
     client = EzplayClient(
         transport,
         tv_addr=data[CONF_TV_ADDR],
@@ -156,9 +139,7 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_esphome_mqtt()
             if transport == TRANSPORT_ESPHOME:
                 return await self.async_step_esphome()
-            if transport == TRANSPORT_PYCEC_TCP:
-                return await self.async_step_pycec_tcp()
-            return await self.async_step_libcec()
+            return await self.async_step_hdmi_cec()
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -187,16 +168,14 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_BUS_LOG_SWITCH].strip()
                 self._data.update(user_input)
                 return await self.async_step_common()
-        kwargs = {}
+        schema = vol.Schema(
+            {vol.Required(CONF_PREFIX, default=DEFAULT_PREFIX): str}
+        )
         switches = _bus_log_switches(self.hass)
         if switches:
-            kwargs[CONF_BUS_LOG_SWITCH] = vol.Optional(
-                CONF_BUS_LOG_SWITCH, description="bus_log_suggestion",
-                default=switches[0],
+            schema = schema.extend(
+                {vol.Optional(CONF_BUS_LOG_SWITCH, default=switches[0]): str}
             )
-        schema = vol.Schema({vol.Required(CONF_PREFIX, default=DEFAULT_PREFIX): str})
-        if kwargs:
-            schema = schema.extend(kwargs)
         return self.async_show_form(
             step_id="esphome_mqtt", data_schema=schema, errors=errors
         )
@@ -223,17 +202,29 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="esphome", data_schema=schema, errors=errors
         )
 
-    async def async_step_pycec_tcp(self, user_input=None) -> ConfigFlowResult:
+    async def async_step_hdmi_cec(self, user_input=None) -> ConfigFlowResult:
+        errors: dict = {}
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_common()
-        return self.async_show_form(step_id="pycec_tcp", data_schema=STEP_PYCEC_TCP)
-
-    async def async_step_libcec(self, user_input=None) -> ConfigFlowResult:
-        if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_common()
-        return self.async_show_form(step_id="libcec", data_schema=STEP_LIBCEC)
+            if not self.hass.services.has_service("hdmi_cec", "send_command"):
+                errors["base"] = "hdmi_cec_missing"
+            else:
+                return await self.async_step_common()
+        return self.async_show_form(
+            step_id="hdmi_cec",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_POWER_ENTITY,
+                        default=self._data.get(CONF_POWER_ENTITY, ""),
+                    ): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "docs_url": "https://www.home-assistant.io/integrations/hdmi_cec/"
+            },
+        )
 
     async def async_step_common(self, user_input=None) -> ConfigFlowResult:
         errors: dict = {}
@@ -249,7 +240,7 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not errors:
                 await self.async_set_unique_id(
                     f"{self._data[CONF_TRANSPORT]}"
-                    f"-{self._data.get(CONF_HOST) or self._data.get(CONF_PREFIX) or ''}"
+                    f"-{self._data.get(CONF_PREFIX) or ''}"
                     f"-{self._data[CONF_SB_ADDR]}"
                 )
                 self._abort_if_unique_id_configured()
@@ -268,7 +259,32 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         description_placeholders=desc_placeholders,
                     )
         return self.async_show_form(
-            step_id="common", data_schema=STEP_COMMON, errors=errors
+            step_id="common", data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_POLL_INTERVAL,
+                        default=self._data.get(
+                            CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+                    ): int,
+                    vol.Required(
+                        CONF_HDMI_PA,
+                        default=self._data.get(CONF_HDMI_PA, DEFAULT_HDMI_PA),
+                    ): str,
+                    vol.Optional(
+                        CONF_TV_ADDR,
+                        default=self._data.get(CONF_TV_ADDR, DEFAULT_TV_ADDR),
+                    ): int,
+                    vol.Optional(
+                        CONF_SB_ADDR,
+                        default=self._data.get(CONF_SB_ADDR, DEFAULT_SB_ADDR),
+                    ): int,
+                    vol.Optional(
+                        CONF_GW_ADDR,
+                        default=self._data.get(CONF_GW_ADDR, DEFAULT_GW_ADDR),
+                    ): int,
+                }
+            ),
+            errors=errors,
         )
 
     @staticmethod
@@ -316,6 +332,10 @@ class Ax5125hOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_BUS_LOG_SWITCH,
                     default=entry.data.get(CONF_BUS_LOG_SWITCH, ""),
+                ): str,
+                vol.Optional(
+                    CONF_POWER_ENTITY,
+                    default=entry.data.get(CONF_POWER_ENTITY, ""),
                 ): str,
             }
         )

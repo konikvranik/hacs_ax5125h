@@ -24,19 +24,11 @@
           "bus_log_switch": "Switch entity „CEC Bus Log Enabled“ (auto-zapnutí)"
         }
       },
-      "pycec_tcp": {
-        "title": "pyCEC TCP bridge (libcec remote)",
-        "description": "Připojení k pyCEC serveru (python3 -m pycec) běžícím na stroji s CEC adaptérem.",
+      "hdmi_cec": {
+        "title": "Integrace HDMI-CEC",
+        "description": "Použije vestavěnou integraci HDMI-CEC tak, jak je nastavená ve vašem YAML (`hdmi_cec:` — lokální adapter nebo vzdálený pyCEC host, podle vaší volby). Soundbar se v ní objeví jako switch entita (hdmi_5 pro logickou adresu 5). Poznámka: integrace HDMI-CEC nedokáže hlásit přijaté rámce, proto vendor stavy jsou optimistické a napájení se čte z entity níže.",
         "data": {
-          "host": "Host",
-          "port": "Port"
-        }
-      },
-      "libcec": {
-        "title": "libcec (lokální adapter)",
-        "description": "Vyžaduje systémový python modul cec (libcec) na stroji s HA — nefunguje v HAOS bez něj.",
-        "data": {
-          "adapter": "Adapter (COM port; prázdné = první nalezený)"
+          "power_entity": "Entita napájení soundbaru (volitelné, např. switch.hdmi_5)"
         }
       },
       "common": {
@@ -54,9 +46,10 @@
     "error": {
       "mqtt_missing": "MQTT integrace není v HA nastavená.",
       "esphome_services_missing": "Nenašel jsem službu esphome.*_cec_send — nejprve nastavte ESPHome integraci.",
+      "hdmi_cec_missing": "Integrace HDMI-CEC není nastavená — přidejte `hdmi_cec:` do configuration.yaml (viz {docs_url}).",
       "poll_too_fast": "Minimální poll interval je 10 s (šetřit CEC sběrnici).",
       "bad_pa": "Fyzická adresa musí být ve tvaru 3.1.0.0.",
-      "transport_error": "Transport selhal (MQTT/TCP/libcec nedostupný).",
+      "transport_error": "Transport selhal (MQTT/TCP/služba nedostupná).",
       "no_response": "Soundbar neodpověděl — zkontrolujte zapnutý CEC bus log, adresy a zapnutý soundbar.",
       "invalid_transport": "Neznámý transport."
     },
@@ -73,7 +66,8 @@
           "tv_addr": "Logická adresa TV",
           "sb_addr": "Logická adresa soundbaru",
           "gw_addr": "Logická adresa gatewaye",
-          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“"
+          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“",
+          "power_entity": "Entita napájení soundbaru (transport hdmi_cec)"
         }
       }
     }

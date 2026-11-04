@@ -3,7 +3,7 @@
 import asyncio
 import unittest
 
-from test_ezplay import _load
+from tests.test_ezplay import _load
 
 ez = _load("ezplay")
 transports = _load("transports")
@@ -117,6 +117,31 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
 
 
 class TestWrites(unittest.IsolatedAsyncioTestCase):
+    async def test_rx_less_set_item_optimistic(self):
+        """hdmi_cec transport: bez rx se ack nečeká, stav optimistic."""
+        t = FakeTransport(None)  # žádné odpovědi
+        t.supports_rx = False
+        c = make_client(t)
+        self.assertFalse(c.rx_capable)
+        ack = await c.async_set_item(ez.ITEM_EQ, 5)
+        self.assertEqual(ack, 5)
+        self.assertEqual(c.data["eq"], 5)
+        # rámec odletěl (spoof + A2)
+        sent_ops = [p[2][0] for p in t.sent]
+        self.assertIn(0xA0, sent_ops)
+        self.assertTrue(
+            any(ez.ezplay_sub(p[2]) == ez.SUB_SET_ITEM_VALUE for p in t.sent)
+        )
+
+    async def test_rx_less_refresh_no_queries(self):
+        """rx-less refresh neposílá žádné dotazy (žádné timeouty)."""
+        t = FakeTransport(None)
+        t.supports_rx = False
+        c = make_client(t)
+        data = await c.async_refresh()
+        self.assertEqual(t.sent, [])
+        self.assertIn("last_seen", data)
+
     async def test_set_item_ack(self):
         t = FakeTransport(default_script)
         c = make_client(t)

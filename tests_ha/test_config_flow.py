@@ -1,0 +1,245 @@
+"""Config flow testy v reálném HA harnessu (pytest-homeassistant-custom-component).
+
+Reprodukuje a hlídá chybu 'Unknown error occurred' při přidávání integrace:
+plný průchod flow všech tří transportů + setup entry.
+"""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+
+DOMAIN = "ax5125h"
+
+MQTT_DATA = {
+    "transport": "esphome_mqtt",
+    "prefix": "cec_gateway",
+    "poll_interval": 30,
+    "hdmi_pa": "3.1.0.0",
+    "tv_addr": 0,
+    "sb_addr": 5,
+    "gw_addr": 14,
+}
+
+
+async def test_user_step_renders(hass: HomeAssistant, enable_custom_integrations) -> None:
+    """První krok: výběr transportu (bez rozbalení formu — čistý render)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert not result.get("errors")
+
+
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_full_flow_mqtt(
+    hass: HomeAssistant,
+    enable_custom_integrations,
+    mqtt_mock_entry,
+    expected_lingering_timers: bool,
+) -> None:
+    """Celý MQTT flow: user -> esphome_mqtt (s cec_bus_log switchem!) -> common -> entry.
+
+    Právě _bus_log_switches se switch stavy dřív padal (async_all vrací stringy).
+    """
+    await mqtt_mock_entry()
+    hass.states.async_set("switch.cec_bus_log_enabled", "on")
+    await hass.async_block_till_done()
+
+    from tests.test_client import FakeTransport, default_script
+
+    with patch(
+        "custom_components.ax5125h.config_flow._async_validate",
+        return_value=({"eq": 1, "power": "on"}, None),
+    ), patch(
+        "custom_components.ax5125h.build_transport",
+        return_value=FakeTransport(default_script),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"transport": "esphome_mqtt"}
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "esphome_mqtt"
+        assert not result.get("errors")
+        # bus log switch je nabídnutý v formu
+        labels = {str(k) for k in result["data_schema"].schema}
+        assert "bus_log_switch" in labels
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"prefix": "cec_gateway", "bus_log_switch": "switch.cec_bus_log_enabled"}
+        )
+        assert result["step_id"] == "common"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"poll_interval": 30, "hdmi_pa": "3.1.0.0",
+             "tv_addr": 0, "sb_addr": 5, "gw_addr": 14},
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result
+    expected = {**MQTT_DATA, "bus_log_switch": "switch.cec_bus_log_enabled"}
+    assert result["data"] == expected
+
+    # entry se po CREATE_ENTRY auto-setupovala už uvnitř patch bloku
+    # (fake transport) — ověříme stav
+    assert result["result"].state is config_entries.ConfigEntryState.LOADED
+
+
+async def test_full_flow_hdmi_cec(hass: HomeAssistant, enable_custom_integrations) -> None:
+    """HDMI-CEC transport: validace služby, rx-less skip handshake."""
+    async def fake_send(call):
+        pass
+
+    hass.services.async_register("hdmi_cec", "send_command", fake_send)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"transport": "hdmi_cec"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "hdmi_cec"
+    assert not result.get("errors")
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"power_entity": "switch.hdmi_5"}
+    )
+    assert result["step_id"] == "common"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"poll_interval": 30, "hdmi_pa": "3.1.0.0",
+         "tv_addr": 0, "sb_addr": 5, "gw_addr": 14},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result
+    assert result["data"]["transport"] == "hdmi_cec"
+    assert result["data"]["power_entity"] == "switch.hdmi_5"
+
+
+async def test_hdmi_cec_missing_service(hass: HomeAssistant, enable_custom_integrations) -> None:
+    """hdmi_cec bez služby -> chybová hláška, ne crash."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"transport": "hdmi_cec"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"power_entity": ""}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "hdmi_cec_missing"}
+
+
+async def test_full_flow_esphome(hass: HomeAssistant, enable_custom_integrations) -> None:
+    """ESPHome native transport: nabídne službu z registru."""
+    async def fake_send(call):
+        pass
+
+    hass.services.async_register("esphome", "hdmi_cec_gateway_cec_send_src", fake_send)
+    hass.services.async_register("esphome", "hdmi_cec_gateway_cec_send", fake_send)
+
+    with patch(
+        "custom_components.ax5125h.config_flow._async_validate",
+        return_value=({"eq": 1, "power": "on"}, None),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"transport": "esphome"}
+        )
+        assert result["step_id"] == "esphome"
+        assert not result.get("errors")
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"service_base": "hdmi_cec_gateway"}
+        )
+        assert result["step_id"] == "common"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"poll_interval": 30, "hdmi_pa": "3.1.0.0",
+             "tv_addr": 0, "sb_addr": 5, "gw_addr": 14},
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result
+
+
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_entry_setup_and_unload(
+    hass: HomeAssistant,
+    enable_custom_integrations,
+    mqtt_mock_entry,
+    expected_lingering_timers: bool,
+) -> None:
+    """Setup entry s fake transportem: coordinator refresh, entity vzniknou, unload čistý."""
+    from tests.test_client import FakeTransport, default_script
+
+    entry = MockConfigEntry(domain=DOMAIN, data=MQTT_DATA, entry_id="test_entry")
+    entry.add_to_hass(hass)
+
+    await mqtt_mock_entry()
+    transport = FakeTransport(default_script)
+    with patch(
+        "custom_components.ax5125h.build_transport",
+        return_value=transport,
+    ) as mock_build:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        mock_build.assert_called_once()
+
+    # coordinator data: eq=1 -> select "MOVIE", power on, bass 0
+    # (entity_id se generuje z translation_key; nezavisle na naming)
+    selects = hass.states.async_all("select")
+    assert any(s.state == "MOVIE" for s in selects), [s.state for s in selects]
+    numbers = hass.states.async_all("number")
+    assert any(s.state in ("0", "0.0") for s in numbers), [s.state for s in numbers]
+    sensors = hass.states.async_all("sensor")
+    assert any(s.state == "on" for s in sensors), [s.state for s in sensors]
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_rx_less_entry_power_from_entity(hass: HomeAssistant, enable_custom_integrations) -> None:
+    """hdmi_cec transport entry: power se čte z konfigurované entity."""
+    from tests.test_client import FakeTransport
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "transport": "hdmi_cec",
+            "power_entity": "switch.hdmi_5",
+            "poll_interval": 30, "hdmi_pa": "3.1.0.0",
+            "tv_addr": 0, "sb_addr": 5, "gw_addr": 14,
+        },
+        entry_id="test_rxless",
+    )
+    entry.add_to_hass(hass)
+
+    async def fake_send(call):
+        pass
+
+    hass.services.async_register("hdmi_cec", "send_command", fake_send)
+    hass.states.async_set("switch.hdmi_5", "on")
+
+    transport = FakeTransport(None)
+    transport.supports_rx = False
+    with patch("custom_components.ax5125h.build_transport", return_value=transport):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    sensors = hass.states.async_all("sensor")
+    assert any(s.state == "on" for s in sensors), [s.state for s in sensors]
+
+    # A2 zápis: optimistic update bez rx (entity existuje a má EQ option)
+    selects = hass.states.async_all("select")
+    assert len(selects) >= 2

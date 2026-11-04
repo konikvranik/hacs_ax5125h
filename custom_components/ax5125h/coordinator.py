@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -18,6 +19,7 @@ from .client import EzplayClient, EzplayError
 from .const import (
     CONF_BUS_LOG_SWITCH,
     CONF_POLL_INTERVAL,
+    CONF_POWER_ENTITY,
     DEFAULT_POLL_INTERVAL,
     DOMAIN,
     MIN_POLL_INTERVAL,
@@ -48,14 +50,31 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
         self.entry = entry
         self.client = client
         self._bus_log_entity = entry.data.get(CONF_BUS_LOG_SWITCH) or None
+        self._power_entity = entry.data.get(CONF_POWER_ENTITY) or None
         self._bus_log_ever_on = False
 
     async def _async_update_data(self) -> dict:
         try:
+            if not self.client.rx_capable:
+                self._refresh_power_from_entity()
+                self.client.data["last_seen"] = time.time()
+                return self.client.data
             await self._ensure_bus_log()
             return await self.client.async_refresh()
         except (EzplayError, TransportError) as exc:
             raise UpdateFailed(str(exc)) from exc
+
+    def _refresh_power_from_entity(self) -> None:
+        """rx-less transport: power z hdmi_cec entity (switch.hdmi_N)."""
+        if not self._power_entity:
+            return
+        state = self.hass.states.get(self._power_entity)
+        if state is None:
+            return
+        if state.state == "on":
+            self.client.data["power"] = "on"
+        elif state.state == "off":
+            self.client.data["power"] = "standby"
 
     async def _ensure_bus_log(self) -> None:
         """Gateway publikuje rx jen se zapnutým "CEC Bus Log Enabled"."""

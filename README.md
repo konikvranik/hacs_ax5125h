@@ -35,14 +35,29 @@ CEC (definitively verified — see the research notes below).
 
 | Transport | Configuration | Notes |
 |---|---|---|
-| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Recommended. Requires an [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) with MQTT; full functionality incl. spoofed source addresses |
+| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Recommended. Requires an [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) with MQTT; full functionality incl. spoofed source addresses and received frames |
 | ESPHome gateway (native API) | service `esphome.<node>_cec_send` | Without a reflash it can only send frames from the gateway (0xE → HDMI switching); with the added `cec_send_src` action (see below) fully functional |
-| **pyCEC TCP bridge** | host + port 9526 | [pyCEC](https://github.com/konikvranik/pycec) server (`python3 -m pycec`) on a machine with a CEC adapter; HA connects as a plain client — no libcec needed inside HA |
-| libcec local | system module `cec` | libcec python bindings directly inside HA (HA Core in a venv/container with libcec installed; **not** HAOS) |
+| **HDMI-CEC integration** | `hdmi_cec:` in your configuration.yaml | Uses the built-in [HDMI-CEC integration](https://www.home-assistant.io/integrations/hdmi_cec/) exactly as you configure it — local adapter or remote pyCEC host. See the limitation below |
 
 All transports can send frames with an **arbitrary source address** — that is
 the key: EZPlay commands must come from the TV (address 0), while switching to
 HDMI IN must come from a switch-role device on the eARC side (0xE = gateway).
+
+### HDMI-CEC integration limitation (read before choosing)
+
+The built-in `hdmi_cec` integration can **send** arbitrary frames
+(`hdmi_cec.send_command` with `raw`) but does **not** report received frames
+(it never fires the `cec_command_received` event). With this transport:
+
+- **all commands work** — EQ/bass/treble/surround/dimmer changes, input
+  switching, volume keys (they are fire-and-forget)
+- **vendor state is optimistic** — entities show the last value you set; the
+  integration cannot poll the soundbar (no responses arrive)
+- **power state** is read from the hdmi_cec switch entity of the soundbar
+  (e.g. `switch.hdmi_5`) — set it in the config flow
+
+For full two-way functionality (real status, A5 push updates from the
+device's own menu/remote) use one of the ESPHome gateway transports.
 
 ### ESPHome gateway notes
 

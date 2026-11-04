@@ -24,19 +24,11 @@
           "bus_log_switch": "Switch entity “CEC Bus Log Enabled” (auto-enable)"
         }
       },
-      "pycec_tcp": {
-        "title": "pyCEC TCP bridge (libcec remote)",
-        "description": "Connect to a pyCEC server (python3 -m pycec) running on a machine with a CEC adapter.",
+      "hdmi_cec": {
+        "title": "HDMI-CEC integration",
+        "description": "Uses the built-in HDMI-CEC integration as configured in your YAML (`hdmi_cec:` — local adapter or remote pyCEC host, your choice). The soundbar appears as a switch entity (hdmi_5 for logical address 5). Note: the HDMI-CEC integration cannot report received frames, so vendor state is optimistic and power is read from the entity below.",
         "data": {
-          "host": "Host",
-          "port": "Port"
-        }
-      },
-      "libcec": {
-        "title": "libcec (local adapter)",
-        "description": "Requires the system python module cec (libcec) on the HA machine — does not work on HAOS without it.",
-        "data": {
-          "adapter": "Adapter (COM port; empty = first found)"
+          "power_entity": "Soundbar power entity (optional, e.g. switch.hdmi_5)"
         }
       },
       "common": {
@@ -54,9 +46,10 @@
     "error": {
       "mqtt_missing": "The MQTT integration is not configured in HA.",
       "esphome_services_missing": "No esphome.*_cec_send service found — set up the ESPHome integration first.",
+      "hdmi_cec_missing": "The HDMI-CEC integration is not configured — add `hdmi_cec:` to configuration.yaml (see {docs_url}).",
       "poll_too_fast": "Minimum poll interval is 10 s (be kind to the CEC bus).",
       "bad_pa": "Physical address must look like 3.1.0.0.",
-      "transport_error": "Transport failed (MQTT/TCP/libcec unreachable).",
+      "transport_error": "Transport failed (MQTT/TCP/service unreachable).",
       "no_response": "Soundbar did not answer — check that the CEC bus log is enabled, the addresses are right and the soundbar is on.",
       "invalid_transport": "Unknown transport."
     },
@@ -73,7 +66,8 @@
           "tv_addr": "TV logical address",
           "sb_addr": "Soundbar logical address",
           "gw_addr": "Gateway logical address",
-          "bus_log_switch": "Switch entity “CEC Bus Log Enabled”"
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled”",
+          "power_entity": "Soundbar power entity (hdmi_cec transport)"
         }
       }
     }
@@ -171,7 +165,7 @@
         },
         "data": {
           "name": "Data",
-          "description": "Opcode + payload, e.g. 0xA0,0xA8,0x82,0x00,0xA3,0x05."
+          "description": "Opcode + payload bytes, 0x or decimal (e.g. 0xA0,0xA8,0x82,0x00,0xA3,0x05)."
         }
       }
     },

@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -50,7 +51,7 @@ class PowerSensor(AxEntity, SensorEntity):
 
 
 class VolumeSensor(AxEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.PERCENTAGE
+    _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "volume"
 

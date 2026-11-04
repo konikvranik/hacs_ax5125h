@@ -34,14 +34,29 @@ Neural:X / Virtual:X a vstupy OPT/AUX/USB/BT **nejsou** přes CEC dostupné
 
 | Transport | Konfigurace | Poznámky |
 |---|---|---|
-| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Doporučeno. Vyžaduje [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) s MQTT; plná funkcionalita včetně podvržení zdrojových adres |
+| **ESPHome gateway (MQTT)** ⭐ | topic prefix (`cec_gateway`) | Doporučeno. Vyžaduje [hdmi-cec-gateway](https://github.com/Palakis/esphome-native-hdmi-cec) s MQTT; plná funkcionalita včetně podvržení zdrojových adres i přijímaných rámců |
 | ESPHome gateway (native API) | služba `esphome.<node>_cec_send` | Bez reflashe umí jen rámce od gateway (0xE → HDMI switch); s přidanou akcí `cec_send_src` (viz níže) plná funkčnost |
-| **pyCEC TCP bridge** | host + port 9526 | [pyCEC](https://github.com/konikvranik/pycec) server (`python3 -m pycec`) na stroji s CEC adaptérem; HA se připojuje jako klient — bez libcec v HA |
-| libcec local | systémový modul `cec` | libcec python binding přímo v HA (HA Core ve venv/containeru s nainstalovaným libcec; **ne** HAOS) |
+| **Integrace HDMI-CEC** | `hdmi_cec:` v configuration.yaml | Použije vestavěnou [integraci HDMI-CEC](https://www.home-assistant.io/integrations/hdmi_cec/) přesně tak, jak si ji nastavíte — lokální adapter nebo vzdálený pyCEC host. Viz omezení níže |
 
 Všechny transporty umí odesílat rámce s **libovolnou zdrojovou adresou** — to je
 klíčové: EZPlay příkazy musí jít od TV (adresa 0), přepnutí na HDMI IN naopak od
 switch-role zařízení z eARC strany (0xE = gateway).
+
+### Omezení integrace HDMI-CEC (přečtěte před volbou)
+
+Vestavěná integrace `hdmi_cec` umí rámce **posílat** (`hdmi_cec.send_command`
+s `raw`), ale přijaté rámce **nehlásí** (event `cec_command_received`
+nevysílá). S tímto transportem:
+
+- **všechny příkazy fungují** — změny EQ/basu/výšek/surroundu/dimmeru,
+  přepínání vstupů, hlasitost (vše fire-and-forget)
+- **vendor stavy jsou optimistické** — entity ukazují poslední vámi nastavenou
+  hodnotu; soundbar nelze pollit (odpovědi nedorazí)
+- **stav napájení** se čte ze switch entity soundbaru v hdmi_cec (např.
+  `switch.hdmi_5`) — nastavte ji v config flow
+
+Pro plnou obousměrnou funkcionalitu (skutečný stav, A5 push změny z vlastního
+menu/ovladače) použijte jeden z ESPHome gateway transportů.
 
 ### Poznámka k ESPHome gatewayi
 

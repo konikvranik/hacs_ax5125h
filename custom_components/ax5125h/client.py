@@ -63,6 +63,9 @@ class EzplayClient:
         self._pending: list[_Pending] = []
         self._last_spoof: float | None = None
         self._support_queried = False
+        #: Transport nedodává rx (hdmi_cec integrace)? Pak vendor zápisy jen
+        #: optimistické a refresh neposílá dotazy (žádné timeouty).
+        self.rx_capable = bool(getattr(transport, "supports_rx", True))
         #: Timeouty requestů (s) — přepsatelné pro testy.
         self.t_short = 1.5    # 0x8F / 0x71
         self.t_params = 2.5   # A0 -> A1
@@ -208,6 +211,12 @@ class EzplayClient:
     # -- veřejné API ---------------------------------------------------------
     async def async_refresh(self) -> dict:
         """Poll: power status -> (pokud zapnuto) all-params + audio status."""
+        if not self.rx_capable:
+            # rx-less transport: žádné dotazy (odpověď by stejně nedošla);
+            # power doplňuje coordinator z entity, vendor stavy optimistic
+            self.data["last_seen"] = time.time()
+            return self.data
+
         power = await self._request(
             self._tv_addr, self._sb_addr, ez.give_power_status_frame(),
             lambda p: (p[0] == ez.OP_REPORT_POWER_STATUS), self.t_short,
@@ -266,7 +275,16 @@ class EzplayClient:
         return support
 
     async def async_set_item(self, item: int, value: int) -> int:
-        """A2 zápis s čekáním na A4 ack; retry s čerstvým spoofem."""
+        """A2 zápis s čekáním na A4 ack; retry s čerstvým spoofem.
+
+        rx-less transport: ack nečekáme (nedojde), stav aplikujeme optimisticky.
+        """
+        if not self.rx_capable:
+            await self._ensure_session()
+            await self._send(self._tv_addr, self._sb_addr,
+                             ez.set_item_frame(item, value))
+            self._apply_item(item, value & 0xFF, base=0x80)
+            return value & 0xFF
         for attempt in range(2):
             await self._ensure_session()
             resp = await self._request(
