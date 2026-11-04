@@ -1,0 +1,78 @@
+send_raw:
+  name: Odeslat raw CEC rámec
+  description: >-
+    Pošle libovolný CEC rámec přes transport integrace (zdrojová adresa je
+    podvržitelná — takto se posílají i EZPlay příkazy za TV).
+    Pojistka: subopcody 0xA6/0xB0/0xB2 (destruktivní na AX5125H) a holé A2
+    bez hodnoty jsou odmítnuty.
+  fields:
+    entity_id:
+      name: Entita
+      description: Libovolná entita soundbaru (určuje konfiguraci).
+      required: false
+      selector:
+        entity:
+          integration: ax5125h
+    source:
+      name: Zdrojová adresa
+      description: Logická adresa odesílatele (0 = TV, 5 = soundbar, 14 = gateway).
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          step: 1
+    destination:
+      name: Cílová adresa
+      description: Logická adresa příjemce (5 = soundbar, 15 = broadcast).
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 0
+          max: 15
+          step: 1
+    data:
+      name: Data
+      description: "Bajty opcode+payload, 0x nebo dec (např. '0xA0,0xA8,0x82,0x00,0xA0')."
+      required: true
+      example: "0xA0,0xA8,0x82,0x00,0xA3,0x05"
+      selector:
+        text:
+
+volume_up:
+  name: Hlasitost +
+  description: Volume up přes CEC UCP (User Control Pressed/Released).
+  fields:
+    entity_id:
+      name: Entita
+      description: Libovolná entita soundbaru.
+      required: true
+      selector:
+        entity:
+          integration: ax5125h
+
+volume_down:
+  name: Hlasitost −
+  description: Volume down přes CEC UCP.
+  fields:
+    entity_id:
+      name: Entita
+      description: Libovolná entita soundbaru.
+      required: true
+      selector:
+        entity:
+          integration: ax5125h
+
+mute_toggle:
+  name: Přepnout mute
+  description: Mute toggle přes CEC UCP.
+  fields:
+    entity_id:
+      name: Entita
+      description: Libovolná entita soundbaru.
+      required: true
+      selector:
+        entity:
+          integration: ax5125h

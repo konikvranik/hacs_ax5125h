@@ -1,0 +1,191 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Hisense AX5125H Soundbar",
+        "description": "Zvolte CEC transport, přes který bude integrace se soundbarem komunikovat.",
+        "data": {
+          "transport": "Transport"
+        }
+      },
+      "esphome_mqtt": {
+        "title": "ESPHome CEC gateway (MQTT)",
+        "description": "MQTT topics ESPHome gatewaye hdmi-cec-gateway. Vyžaduje zapnutou MQTT integraci v HA.",
+        "data": {
+          "prefix": "MQTT topic prefix",
+          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“ (auto-zapnutí; gateway bez něj nepublikuje rx)"
+        }
+      },
+      "esphome": {
+        "title": "ESPHome CEC gateway (native API)",
+        "description": "Služba esphome.<název>_cec_send. Pro plnou funkčnost (EZPlay za TV) potřebuje gateway akci cec_send_src.",
+        "data": {
+          "service_base": "ESPHome služba",
+          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“ (auto-zapnutí)"
+        }
+      },
+      "pycec_tcp": {
+        "title": "pyCEC TCP bridge (libcec remote)",
+        "description": "Připojení k pyCEC serveru (python3 -m pycec) běžícím na stroji s CEC adaptérem.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "libcec": {
+        "title": "libcec (lokální adapter)",
+        "description": "Vyžaduje systémový python modul cec (libcec) na stroji s HA — nefunguje v HAOS bez něj.",
+        "data": {
+          "adapter": "Adapter (COM port; prázdné = první nalezený)"
+        }
+      },
+      "common": {
+        "title": "Parametry CEC sběrnice",
+        "description": "Výchozí hodnoty odpovídají standardní topologii: TV=0, soundbar (AudioSystem)=5, gateway=0xE, Kodi za HDMI IN soundbaru na 3.1.0.0.",
+        "data": {
+          "poll_interval": "Poll interval (s)",
+          "hdmi_pa": "Fyzická adresa HDMI IN (pro přepnutí na HDMI)",
+          "tv_addr": "Logická adresa TV",
+          "sb_addr": "Logická adresa soundbaru",
+          "gw_addr": "Logická adresa gatewaye/switch role"
+        }
+      }
+    },
+    "error": {
+      "mqtt_missing": "MQTT integrace není v HA nastavená.",
+      "esphome_services_missing": "Nenašel jsem službu esphome.*_cec_send — nejprve nastavte ESPHome integraci.",
+      "poll_too_fast": "Minimální poll interval je 10 s (šetřit CEC sběrnici).",
+      "bad_pa": "Fyzická adresa musí být ve tvaru 3.1.0.0.",
+      "transport_error": "Transport selhal (MQTT/TCP/libcec nedostupný).",
+      "no_response": "Soundbar neodpověděl — zkontrolujte zapnutý CEC bus log, adresy a zapnutý soundbar.",
+      "invalid_transport": "Neznámý transport."
+    },
+    "abort": {
+      "already_configured": "Tato kombinace transportu a adresy už je nastavená."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "poll_interval": "Poll interval (s)",
+          "hdmi_pa": "Fyzická adresa HDMI IN",
+          "tv_addr": "Logická adresa TV",
+          "sb_addr": "Logická adresa soundbaru",
+          "gw_addr": "Logická adresa gatewaye",
+          "bus_log_switch": "Switch entity „CEC Bus Log Enabled“"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "eq": {
+        "name": "EQ",
+        "state": {
+          "MUSIC": "Music",
+          "MOVIE": "Movie",
+          "NEWS": "News",
+          "SPORT": "Sport",
+          "NIGHT": "Night",
+          "GAME": "Game",
+          "AI EQ": "AI EQ"
+        }
+      },
+      "surround": {
+        "name": "Surround",
+        "state": {
+          "PURE": "Pure",
+          "PRO": "Pro",
+          "OFF": "Off"
+        }
+      },
+      "dimmer": {
+        "name": "Display brightness"
+      },
+      "input": {
+        "name": "Input",
+        "state": {
+          "ARC": "ARC (TV/eARC)",
+          "HDMI": "HDMI IN"
+        }
+      }
+    },
+    "number": {
+      "bass": {
+        "name": "Bass"
+      },
+      "treble": {
+        "name": "Treble"
+      }
+    },
+    "sensor": {
+      "power": {
+        "name": "Power",
+        "state": {
+          "on": "On",
+          "standby": "Standby",
+          "turning_on": "Turning on",
+          "turning_off": "Turning off",
+          "unknown": "Unknown"
+        }
+      },
+      "volume": {
+        "name": "Volume"
+      },
+      "support_features": {
+        "name": "EZPlay support features"
+      },
+      "active_source": {
+        "name": "Active source"
+      }
+    },
+    "button": {
+      "volume_up": {
+        "name": "Volume up"
+      },
+      "volume_down": {
+        "name": "Volume down"
+      },
+      "mute": {
+        "name": "Mute"
+      }
+    }
+  },
+  "services": {
+    "send_raw": {
+      "name": "Odeslat raw CEC rámec",
+      "description": "Pošle libovolný CEC rámec přes transport integrace. Pojistka: destruktivní subopcody (A6/B0/B2) a holé A2 jsou odmítnuty.",
+      "fields": {
+        "entity_id": {
+          "name": "Entita",
+          "description": "Libovolná entita soundbaru."
+        },
+        "source": {
+          "name": "Zdrojová adresa",
+          "description": "0 = TV, 5 = soundbar, 14 = gateway."
+        },
+        "destination": {
+          "name": "Cílová adresa",
+          "description": "5 = soundbar, 15 = broadcast."
+        },
+        "data": {
+          "name": "Data",
+          "description": "Opcode + payload, např. 0xA0,0xA8,0x82,0x00,0xA3,0x05."
+        }
+      }
+    },
+    "volume_up": {
+      "name": "Hlasitost +",
+      "description": "Volume up přes CEC UCP."
+    },
+    "volume_down": {
+      "name": "Hlasitost −",
+      "description": "Volume down přes CEC UCP."
+    },
+    "mute_toggle": {
+      "name": "Přepnout mute",
+      "description": "Mute toggle přes CEC UCP."
+    }
+  }
+}
