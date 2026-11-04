@@ -83,7 +83,14 @@ class MqttCecTransport(CecTransport):
         await super().async_stop()
 
     def _on_message(self, msg) -> None:
-        text = msg.payload.decode("utf-8", errors="replace")
+        # HA 2025.6+ doručuje payload typicky jako str; starší verze jako
+        # bytes (ReceivePayloadType = str | bytes | bytearray).
+        payload = msg.payload
+        text = (
+            payload
+            if isinstance(payload, str)
+            else bytes(payload).decode("utf-8", errors="replace")
+        )
         frame = frame_from_text(text)
         if frame is not None:
             self._deliver(*frame)
