@@ -9,8 +9,8 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
 
 from .client import EzplayClient, EzplayTimeout
 from .const import (
@@ -148,7 +148,7 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
 
-    async def async_step_user(self, user_input=None) -> FlowResult:
+    async def async_step_user(self, user_input=None) -> ConfigFlowResult:
         if user_input is not None:
             self._data.update(user_input)
             transport = user_input[CONF_TRANSPORT]
@@ -170,7 +170,7 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    async def async_step_esphome_mqtt(self, user_input=None) -> FlowResult:
+    async def async_step_esphome_mqtt(self, user_input=None) -> ConfigFlowResult:
         errors: dict = {}
         if user_input is not None:
             try:
@@ -201,7 +201,7 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="esphome_mqtt", data_schema=schema, errors=errors
         )
 
-    async def async_step_esphome(self, user_input=None) -> FlowResult:
+    async def async_step_esphome(self, user_input=None) -> ConfigFlowResult:
         errors: dict = {}
         bases = _esphome_service_bases(self.hass)
         if user_input is not None:
@@ -223,19 +223,19 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="esphome", data_schema=schema, errors=errors
         )
 
-    async def async_step_pycec_tcp(self, user_input=None) -> FlowResult:
+    async def async_step_pycec_tcp(self, user_input=None) -> ConfigFlowResult:
         if user_input is not None:
             self._data.update(user_input)
             return await self.async_step_common()
         return self.async_show_form(step_id="pycec_tcp", data_schema=STEP_PYCEC_TCP)
 
-    async def async_step_libcec(self, user_input=None) -> FlowResult:
+    async def async_step_libcec(self, user_input=None) -> ConfigFlowResult:
         if user_input is not None:
             self._data.update(user_input)
             return await self.async_step_common()
         return self.async_show_form(step_id="libcec", data_schema=STEP_LIBCEC)
 
-    async def async_step_common(self, user_input=None) -> FlowResult:
+    async def async_step_common(self, user_input=None) -> ConfigFlowResult:
         errors: dict = {}
         if user_input is not None:
             self._data.update(user_input)
@@ -286,7 +286,7 @@ class Ax5125hOptionsFlow(config_entries.OptionsFlow):
         super().__init__()
         self._entry = config_entry
 
-    async def async_step_init(self, user_input=None) -> FlowResult:
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         entry = self._entry or getattr(self, "config_entry", None)
         if entry is None:
             return self.async_abort(reason="no_entry")
