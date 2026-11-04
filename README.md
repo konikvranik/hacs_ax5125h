@@ -132,6 +132,13 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 - After a reboot the soundbar ignores vendor commands for ~30 s (standard CEC
   init).
 
+## Brand icon
+
+Since HA 2026.3 the integration ships its own icon in
+`custom_components/ax5125h/brand/` (Hisense wordmark, light + dark variants).
+Home Assistant picks it up automatically — no configuration needed. Older HA
+versions show the generic placeholder icon instead.
+
 ## Research
 
 The protocol comes from reverse engineering the AX3120G firmware plus live

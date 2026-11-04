@@ -125,6 +125,13 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   Set_Volume` má neověřený formát hodnoty a záměrně se nepoužívá.
 - Soundbar po rebootu ~30 s ignoruje vendor příkazy (standardní CEC init).
 
+## Ikona integrace
+
+Od HA 2026.3 si integrace nese ikonu přímo v repu, ve složce
+`custom_components/ax5125h/brand/` (Hisense wordmark, light + dark varianty).
+Home Assistant ji použije automaticky — bez jakékoliv konfigurace. Starší HA
+zobrazí generickou zástupnou ikonu.
+
 ## Výzkum
 
 Protokol vznikl reverzní analýzou firmware AX3120G + živými testy na AX5125H
