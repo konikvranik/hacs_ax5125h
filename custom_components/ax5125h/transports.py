@@ -93,7 +93,10 @@ class MqttCecTransport(CecTransport):
         )
         frame = frame_from_text(text)
         if frame is not None:
-            self._deliver(*frame)
+            # HA mqtt doručuje callbacky mimo event loop (paho thread /
+            # executor) — async_set_updated_data i asyncio futures klienta
+            # musí běžet v loopu, takže doručení přeřadíme tam.
+            self._hass.loop.call_soon_threadsafe(self._deliver, *frame)
 
     async def async_send(self, src: int, dst: int, payload: list[int]) -> None:
         from homeassistant.components import mqtt  # noqa: PLC0415

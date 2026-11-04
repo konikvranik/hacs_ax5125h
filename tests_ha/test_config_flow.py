@@ -205,6 +205,27 @@ async def test_entry_setup_and_unload(
     sensors = hass.states.async_all("sensor")
     assert any(s.state == "on" for s in sensors), [s.state for s in sensors]
 
+    # entity musí mít unique_id a být připojené k zařízení (bez unique_id
+    # je HA 2025.x+ k zařízení nepřipojí — "no devices" bug)
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    # 2026.10: async_get_device(identifiers=) deprecated → nové API
+    device = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, "test_entry"), entry.entry_id
+    )
+    assert device is not None, "device registrace chybí"
+    registered = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+    # 4 senzory + 3 tlačítka + 4 selecty + 2 numbers = 13
+    assert len(registered) == 13, [e.unique_id for e in registered]
+    assert registered, "žádné registrované entity"
+    for e in registered:
+        assert e.unique_id, f"entity {e.entity_id} nemá unique_id"
+        assert e.device_id == device.id, (
+            f"entity {e.entity_id} není připojená k zařízení"
+        )
+
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
