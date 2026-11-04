@@ -243,3 +243,46 @@ async def test_rx_less_entry_power_from_entity(hass: HomeAssistant, enable_custo
     # A2 zápis: optimistic update bez rx (entity existuje a má EQ option)
     selects = hass.states.async_all("select")
     assert len(selects) >= 2
+
+
+async def test_bus_log_autodetect_and_auto_enable(
+    hass: HomeAssistant, enable_custom_integrations, mqtt_mock_entry
+) -> None:
+    """Flow bez vyplněného bus_log pole: switch se najde a zapne sám."""
+    from tests.test_client import FakeTransport, default_script
+
+    await mqtt_mock_entry()
+    turn_on_calls = []
+
+    async def fake_turn_on(call):
+        turn_on_calls.append(dict(call.data))
+
+    hass.services.async_register("switch", "turn_on", fake_turn_on)
+    hass.states.async_set("switch.cec_bus_log_enabled", "off")
+
+    with patch(
+        "custom_components.ax5125h.config_flow._async_validate",
+        return_value=({"eq": 1, "power": "on"}, None),
+    ), patch(
+        "custom_components.ax5125h.build_transport",
+        return_value=FakeTransport(default_script),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"transport": "esphome_mqtt"}
+        )
+        # pole bus_log_switch NEvyplňujeme (má default ze suggestions)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"prefix": "cec_gateway"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"poll_interval": 30, "hdmi_pa": "3.1.0.0",
+             "tv_addr": 0, "sb_addr": 5, "gw_addr": 14},
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY, result
+    # switch byl OFF → _async_validate ho měla zapnout sama
+    assert {"entity_id": "switch.cec_bus_log_enabled"} in turn_on_calls

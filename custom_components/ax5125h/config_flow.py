@@ -102,16 +102,21 @@ async def _async_validate(hass: HomeAssistant, data: dict) -> tuple[dict, str | 
     )
     try:
         await client.async_start()
-        # zapnout bus log přes switch entity, pokud je nastavená
-        bus_log = data.get(CONF_BUS_LOG_SWITCH)
+        # Bus log MUSI byt zapnuty (jinak gateway nepublikuje rx a A1 nikdy
+        # nedorazi) — zapiname bezpodmíněně, ať je pole vyplněné nebo ne.
+        candidates = _bus_log_switches(hass)
+        bus_log = data.get(CONF_BUS_LOG_SWITCH) or (
+            candidates[0] if candidates else None
+        )
         if bus_log and hass.states.get(bus_log) is not None \
                 and hass.states.get(bus_log).state != "on":
+            _LOGGER.info("zapínám CEC bus log (%s)", bus_log)
             await hass.services.async_call(
                 "switch", "turn_on", {"entity_id": bus_log}
             )
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.5)
         try:
-            state = await asyncio.wait_for(client.async_refresh(), timeout=12.0)
+            state = await asyncio.wait_for(client.async_refresh(), timeout=20.0)
         finally:
             await client.async_stop()
     except TransportError as exc:
