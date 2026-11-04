@@ -47,15 +47,21 @@ class _VolumeButton(AxEntity, ButtonEntity):
 
 
 class VolumeUpButton(_VolumeButton):
+    _attr_icon = "mdi:volume-plus"
+
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "volume_up", UCP_VOLUME_UP)
 
 
 class VolumeDownButton(_VolumeButton):
+    _attr_icon = "mdi:volume-minus"
+
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "volume_down", UCP_VOLUME_DOWN)
 
 
 class MuteButton(_VolumeButton):
+    _attr_icon = "mdi:volume-mute"
+
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "mute", UCP_MUTE_TOGGLE)

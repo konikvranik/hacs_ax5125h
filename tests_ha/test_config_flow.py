@@ -207,7 +207,18 @@ async def test_entry_setup_and_unload(
 
     # entity musí mít unique_id a být připojené k zařízení (bez unique_id
     # je HA 2025.x+ k zařízení nepřipojí — "no devices" bug)
+    # + konkrétní ikony (ne generické placeholdery)
     from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    all_states = hass.states.async_all()
+    missing_icons = [
+        s.entity_id for s in all_states if not s.attributes.get("icon")
+    ]
+    assert not missing_icons, f"entity bez ikony: {missing_icons}"
+    number_icons = {
+        s.attributes.get("icon") for s in hass.states.async_all("number")
+    }
+    assert number_icons == {"mdi:music-clef-bass", "mdi:music-clef-treble"}
 
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)

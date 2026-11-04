@@ -44,6 +44,7 @@ class PowerSensor(AxEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = POWER_OPTIONS
     _attr_translation_key = "power"
+    _attr_icon = "mdi:power"
 
     @property
     def native_value(self) -> StateType:
@@ -54,6 +55,7 @@ class VolumeSensor(AxEntity, SensorEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "volume"
+    _attr_icon = "mdi:volume-high"
 
     @property
     def native_value(self) -> StateType:
@@ -71,6 +73,7 @@ class SupportFeaturesSensor(AxEntity, SensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "support_features"
+    _attr_icon = "mdi:feature-search"
 
     @property
     def native_value(self) -> StateType:
@@ -88,6 +91,7 @@ class ActiveSourceSensor(AxEntity, SensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "active_source"
+    _attr_icon = "mdi:cast-audio"
 
     @property
     def native_value(self) -> StateType:

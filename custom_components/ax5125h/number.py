@@ -59,6 +59,7 @@ class _AxNumber(AxEntity, NumberEntity):
 
 class BassNumber(_AxNumber):
     _data_key = "bass"
+    _attr_icon = "mdi:music-clef-bass"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "bass", ITEM_BASS)
@@ -66,6 +67,7 @@ class BassNumber(_AxNumber):
 
 class TrebleNumber(_AxNumber):
     _data_key = "treble"
+    _attr_icon = "mdi:music-clef-treble"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "treble", ITEM_TREBLE)

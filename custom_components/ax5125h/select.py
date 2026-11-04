@@ -52,6 +52,8 @@ class _BaseSelect(AxEntity, SelectEntity):
 
 
 class EqSelect(_BaseSelect):
+    _attr_icon = "mdi:equalizer"
+
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "eq", EQ_OPTIONS)
 
@@ -73,6 +75,8 @@ class EqSelect(_BaseSelect):
 
 
 class SurroundSelect(_BaseSelect):
+    _attr_icon = "mdi:surround-sound"
+
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "surround", SURROUND_OPTIONS)
 
@@ -99,6 +103,8 @@ class DimmerSelect(_BaseSelect):
     A1 hlásí interní 0, když si soundbar displej po nečinnosti sám ztlumí —
     zobrazujeme jako nejslabší úroveň (zápis nikdy 0, vždy 1-4).
     """
+
+    _attr_icon = "mdi:brightness-6"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(
@@ -134,6 +140,8 @@ class InputSelect(_BaseSelect):
     Aktuální stav je odvozený z Active Source broadcastů + optimisticky po
     příkazu (soundbar svůj vstup nehlásí).
     """
+
+    _attr_icon = "mdi:video-input-hdmi"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "input", INPUT_OPTIONS)
