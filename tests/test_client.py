@@ -349,11 +349,15 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
                 and tuple(p[2][1:4]) == (0x8A, 0xC7, 0x2E)]
         self.assertIn(0x10, subs)
         self.assertIn(0x12, subs)
-        # zápis surroundu je od 0.7.2 VYPNUT (neznámá sémantika option
-        # bajtů korumpuje zařízení, #17) — read-only RTVR
-        from tests.test_client import EzplayError as _E
-        with self.assertRaises(EzplayError):
-            await c.rtvr_set_surr(2)
+        # zápis OFF (opt1=2) → ReportState potvrdí; F-maska mění jen opt1
+        ok = await c.rtvr_set_surr(2)
+        self.assertTrue(ok)
+        self.assertEqual(c.data["surr"], 2)
+        set_frames = [p[2] for p in t.sent if len(p[2]) == 9
+                      and p[2][0] == 0xA0 and p[2][4] == 0x30]
+        self.assertEqual(set_frames[-1],
+                         [0xA0, 0x8A, 0xC7, 0x2E, 0x30, 0x5D, 0xF2, 0xFF,
+                          0xFF])
 
     async def test_rtvr_no_response_suppressed(self):
         """Bez RTVR odpovědi: handshake selže a 5 min se neopakuje."""
