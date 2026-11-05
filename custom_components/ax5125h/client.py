@@ -35,12 +35,6 @@ RTVR_SURR_OFF = 2
 #: Po neúspěšném RTVR handshake opakovat nejdřív za (s):
 RTVR_RETRY_MIN = 300.0
 
-#: Měkký standby po async_power_off trvá pár minut (tmavý displej, LED
-#: svítí, CEC hlásí unmute) — během tohoto okna poll nesmí překlopit stav
-#: zpět na on; skončí dřív, jakmile se objeví mute=1 (deep) nebo spontánní
-#: push (bar zase žije).
-SOFT_STANDBY_WINDOW = 360.0
-
 #: Opkody, které jsou odpověďmi na CIZÍ poll (Give Power Status/Physical
 #: Address/Vendor ID/OSD Name) — aktivitou uživatele NEJSOU. Soundbar na
 #: ně odpovídá rámově (gateway/TV pinguje pravidelně), a kdyby obnovovaly
@@ -176,8 +170,12 @@ class EzplayClient:
             self._handle_ezplay(src, payload)
         elif opcode == ez.OP_REPORT_POWER_STATUS and src == self._sb_addr:
             status = ez.parse_power_status(payload)
-            if status:
-                self.data["power"] = status
+            # 90:00 = odpověď na cizí heartbeat (gateway pinguje každých 5 s)
+            # — CEC "On" je na AX5125H bezvýznamná (hlásí ON vždy, i ve
+            # hlubokém standby). 90:01 je naopak reálná událost (přechod do
+            # standby — např. IR off / auto-standby).
+            if status == "standby":
+                self.data["power"] = "standby"
         elif opcode == ez.OP_REPORT_AUDIO_STATUS and (src == self._sb_addr or src == 5):
             audio = ez.parse_audio_status(payload)
             if audio is not None:
@@ -202,10 +200,11 @@ class EzplayClient:
                 self._apply_source_pa(pa)
         elif opcode == ez.OP_SET_SYSTEM_AUDIO_MODE and \
                 src == self._sb_addr and dst == 0xF and len(payload) >= 2:
-            # SAM On (5F:72:01) = soundbar se stal TV audio (ARC/eARC);
-            # SAM Off (72:00) je přechodný — stav vstupu nemanipulujeme
+            # SAM On (5F:72:01) = soundbar se stal TV audio (ARC/eARC) —
+            # broadcastuje ho i při probuzení (UCP/IR) → znamená „je živý"
             if payload[1] == 1:
                 self.data["input"] = "arc"
+                self.data["power"] = "on"
         elif opcode == ez.OP_USER_CONTROL_PRESSED and dst == self._sb_addr and len(payload) >= 2:
             code = payload[1]
             if code == ez.UCP_VOLUME_UP and "volume" in self.data and self.data["volume"] is not None:
@@ -232,50 +231,17 @@ class EzplayClient:
             self._notify()
 
     def _apply_audio(self, audio: tuple[bool, int], is_reply: bool) -> None:
-        """Aplikuje mute/volume z 0x7A a odvodí power (mute-bit model).
+        """Aplikuje mute/volume z 0x7A.
 
-        Mute bit je jediný CEC stavový signál AX5125H, ale sam o sobě
-        nerozliší „deep standby" od „on + ztlumený IR/HA mute". Rozlišujeme
-        kontextem (0.5.1):
-          - unmute → on; výjimka: okno SOFT_STANDBY_WINDOW po async_power_off
-            (měkký standby hlásí unmute) — konec dřív při spontánním pushi
-          - spontánní push (není odpověď na náš poll) = IR/HA akce → bar
-            žije → vždy on (ztlumený push nemá vypínat stav!)
-          - mute=1 z pollu platí standby jen při 0→1 přechodu (přechod do
-            hlubokého standby neprodukuje žádný rámec); trvalý mute po
-            pushi zůstává on
+        Power se z mute bitu NEODVOZUJE — bit kolísá i ve vypnutém stavu
+        (research-log #13) a dotaz, který ho čte, baru brání projít BYE do
+        hlubokého spánku. Power řídí výhradně události: příkazy HA, 72:01
+        broadcast (SAM on), 90:01 a spontánní push.
         """
-        prev_mute = self.data.get("mute")
         self.data["mute"], self.data["volume"] = audio
         if not is_reply:
-            # spontánní push: bar reaguje na IR/HA → živý = on; zároveň
-            # ukončí případné potlačení po power_off a resetuje debounce
-            self.data["power_suppress_until"] = 0.0
             self.data["last_activity"] = time.time()
-            self.data["unmute_streak"] = 0
             self.data["power"] = "on"
-        elif not audio[0]:
-            # unmute z pollu: DEBOUNCE — flip standby→on až po 2 souvislých
-            # vzorcích. Jednofázový flip tu vytvářel vlastní smyčku: poll
-            # flip standby→on pustil rychlý vendor poll → ten držel bar
-            # v měkkém standby (unmute) → nekonečné on/off oscilace.
-            streak = (self.data.get("unmute_streak") or 0) + 1
-            self.data["unmute_streak"] = streak
-            if time.time() <= self.data.get("power_suppress_until", 0.0):
-                self.data["unmute_streak"] = 0
-            elif self.data.get("power") is None:
-                # první poll po startu (žádný předchozí stav) — rovnou on,
-                # debounce hlídá jen překlopení KNÁMÉHO standby (flap ochrana)
-                self.data["power"] = "on"
-            elif streak >= 2 and self.data.get("power") != "on":
-                self.data["power"] = "on"
-        elif prev_mute is not True:
-            # poll viděl mute bez push signálu (0→1 přechod, nebo první
-            # poll po startu s neznámým předchozím stavem) = hluboký standby
-            self.data["unmute_streak"] = 0
-            self.data["power"] = "standby"
-            self.data["power_suppress_until"] = 0.0
-        # mute=1 a už dřív mute (trvalý mute po pushi) → power necháme
 
     async def _send_give_audio_status(self) -> None:
         try:
@@ -357,25 +323,19 @@ class EzplayClient:
                 _LOGGER.exception("on_update callback selhal")
 
     # -- veřejné API ---------------------------------------------------------
-    async def async_refresh(self, audio_only: bool = False) -> dict:
-        """Poll: audio status (power/volume/mute) -> (pokud živý) all-params.
+    async def async_refresh(self, traffic: bool = True) -> dict:
+        """Active-window refresh (0x71 + vendor dotazy).
 
-        audio_only=True = jen lehký 0x71 probe (používá coordinator v idle/
-        standby fázi) — vendor provoz by držel bar v měkkém standby navždy,
-        takže by se nikdy nedostal do hlubokého standby, jehož mute bit je
-        jediný spolehlivý stavový signál.
+        traffic=False = pouze bookkeeping, ŽÁDNÉ rámce odcházejí — používá
+        coordinator v idle/standby fázi. Jakýkoliv dotaz totiž baru brání v
+        auto-standby (neprojde „BYE" do hlubokého spánku; pozorování
+        uživatele: BYE → LED zhasne za sekundy, pokud nic dotazy neruší).
 
-        Power model (živě 2026-11-05, docs research-log #12): CEC 0x8F hlásí
-        ON vždy (soft i deep standby) — nepoužitelné. Jediný CEC rozlišovač
-        stavu AX5125H je mute bit v 0x71 Report Audio Status, vyhodnocovaný
-        kontextově v _apply_audio (přechody + push detekce): spontánní push
-        = on (bar živý, i ztlumený), poll mute přechod = deep standby,
-        trvalý mute po pushi = zůstává on, unmute v soft-standby okně po
-        power_off = zůstává standby.
+        Power stav z refresh NEPOVODÍME — ten řídí výhradně události
+        (příkazy HA, 72:01 broadcast, 90:01, spontánní push). Refresh jen
+        svěží mute/volume a vendor parametry během aktivního okna.
         """
-        if not self.rx_capable:
-            # rx-less transport: žádné dotazy (odpověď by stejně nedošla);
-            # power doplňuje coordinator z entity, vendor stavy optimistic
+        if not self.rx_capable or not traffic:
             self.data["last_seen"] = time.time()
             return self.data
 
@@ -385,21 +345,13 @@ class EzplayClient:
         )
         parsed = ez.parse_audio_status(audio) if audio is not None else None
         if parsed is None:
-            # 0x71 odpovídá v KAŽDÉM stavu (i deep standby) — ticho znamená
-            # mrtvý CEC transport/session, ne standby
+            # 0x71 odpovídá v KAŽDÉM stavu — ticho = mrtvý transport
             raise EzplayTimeout(
                 "soundbar neodpovídá na 0x71 (CEC výpadek?)"
             )
-        # POZOR: mute/volume/power už aplikoval _handle_frame (jediné místo,
-        # kde jde správně rozlišit reply vs. spontánní push) — tady znovu
-        # NEAPLIKUJEME, dvojí aplikace rozbíjí debounce (0.6.1).
-        muted = bool(self.data.get("mute"))
-
-        if audio_only or (muted and self.data.get("power") != "on"):
-            # deep standby (mute přechod bez push) / idle fáze — vendor
-            # provoz šetříme (i kvůli hlubokému standby samotného baru)
-            self.data["last_seen"] = time.time()
-            return self.data
+        # mute/volume už aplikoval _handle_frame (is_reply detekce tam) —
+        # tady znovu NEAPLIKUJEME
+        self.data["last_seen"] = time.time()
 
         params = None
         for _ in range(2):
@@ -514,17 +466,16 @@ class EzplayClient:
         self.data["input"] = which
 
     async def async_power_on(self) -> None:
-        """Zapne soundbar: UCP Power On (0x6D) + verifikace + poctivý revert.
+        """Zapne soundbar: UCP Power On (0x6D press/release).
 
-        Wake matice (živě, research-log #14): **UCP 0x6D press/release je
-        dvakrát ověřený wake z hlubokého standby** (bar odpoví 72:01 SAM on
-        + 7A unmute). Set Stream Path i Active Source z hlubokého standby
-        NEZABÍRAJÍ (sweep W1-W5: ticho přes 5 minut stabilního mute=1);
-        z měkké fáze neznám fungující rámec žádný. Po odeslání verifikujeme
-        poll 0x71 (unmute = probuzeno); když mute přetrvává, zkusíme ještě
-        SP+AS, a pokud ani pak nic, stav se poctivě vrací na standby.
+        Jediný dvakrát živě ověřený wake z hlubokého standby (research-log
+        #14; bar odpoví 72:01 SAM on broadcastem). Verifikace je PASIVNÍ —
+        žádné další dotazy (dotaz by právě probuzený/uspávaný bar držel
+        vzhůru): pokud do 8 s nepřijde žádný spontánní rámec (72:01/7A/…),
+        probuzení se nepovedlo a stav se poctivě vrací na standby. Přijde-li
+        90:01, stav si opraví event handler sám.
         """
-        self.data["last_activity"] = time.time()
+        before_activity = self.data.get("last_activity", 0.0)
         await self._send(
             self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
         )
@@ -533,48 +484,28 @@ class EzplayClient:
             self._tv_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
         )
         self.data["power"] = "on"
-        self.data["power_suppress_until"] = 0.0
         self._notify()
         if not self.rx_capable:
             return
-        woke = False
-        for attempt in range(4):
-            await asyncio.sleep(2.5)
-            if attempt == 1:
-                # druhá fáze: SP+AS (zkus i měkkou cestu; z deep neškodí —
-                # sweep: ticho)
-                await self._send(self._tv_addr, 0xF,
-                                 ez.set_stream_path_frame(self._hdmi_pa))
-                await self._send(self._gw_addr, 0xF,
-                                 ez.active_source_frame(self._hdmi_pa))
-            audio = await self._request(
-                self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
-                lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
-            )
-            parsed = ez.parse_audio_status(audio) if audio is not None else None
-            if parsed is not None:
-                # stav už aplikoval _handle_frame — tady jen kontrola unmute
-                if not parsed[0]:
-                    woke = True
-                    break
-        if not woke:
+        await asyncio.sleep(8)
+        if self.data.get("power") == "standby":
+            return  # 90:01 dospěl — event handler to opravil
+        if self.data.get("last_activity", 0.0) <= before_activity:
             _LOGGER.info(
-                "power ON nepotvrzen (0x71 stále mute) — vracím stav standby"
+                "power ON nepotvrzen (žádná reakce baru) — vracím standby"
             )
             self.data["power"] = "standby"
         self._notify()
 
     async def async_power_off(self) -> None:
-        """Převede soundbar / receiver do standby (CEC 0x36 Standby).
+        """Převede soundbar do standby (CEC 0x36 Standby).
 
-        Měkký standby fáze (pár minut, CEC hlásí unmute) nesmí poll překlopit
-        zpět na on — nastavíme potlačení SOFT_STANDBY_WINDOW; skončí dřív při
-        mute=1 (deep) nebo spontánním pushi (bar zase žije).
-        """
+        Optimisticky standby; integrace hned utlumí veškerý provoz směrem k
+        baru (coordinator _adapt_polling → silent mód), aby mohl projít BYE
+        do hlubokého spánku."""
         self.data["last_activity"] = time.time()
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
         self.data["power"] = "standby"
-        self.data["power_suppress_until"] = time.time() + SOFT_STANDBY_WINDOW
         self._notify()
 
     async def async_set_dimmer(self, menu: int) -> None:

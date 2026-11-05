@@ -123,33 +123,30 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   writes corrupt NVRAM (fixed in 0.3.0 — earlier builds wrote shifted item
   ids; repair via RTVR SetState + one official IR change)
 
-## Power ON/OFF and power state (0.5.0 — live-verified)
+## Power ON/OFF and power state (0.7.0 — event-driven, live-verified)
 
 - **OFF** = CEC `<Standby>` (0x36), works reliably.
 - **ON** = **UCP Power On** (`0x44 0x6D` + `0x45 0x6D`) — the only frame
-  live-verified to wake the bar from **deep standby** (red LED off; twice
-  verified: the bar answers with a SAM-on broadcast + unmute). Set Stream
-  Path, Active Source, IVO and SAM frames do **not** wake it (sweep-verified
-  silence). The result is **verified** by polling the audio status (unmute =
-  awake); if mute persists, a Set Stream Path + Active Source fallback is
-  sent (soft-phase attempt), and if nothing works the state honestly
-  reverts to *standby* (no stuck optimistic *on*).
-- **Power state**: the CEC `Report Power Status` (0x8F) is **useless on this
-  device** — it reports `On` in every state. The only state signal is the
-  **mute bit** of `Report Audio Status` (0x71→0x7A), evaluated in context:
-  a spontaneous `7A` push (IR/HA mute or volume) means the bar is alive →
-  *on* even when muted; a mute flip seen **only** by the poll (deep standby
-  emits no frames) → *standby*; a poll-unmute inside the soft-standby window
-  right after a HA power-off stays *standby* (the dark soft-standby phase
-  still reports unmute). The media_player state mirrors this.
-- **Adaptive polling**: while the bar is *on* and active (any HA command or
-  push from the bar within the last 10 min), the integration polls at the
-  configured interval incl. vendor queries. Once idle or in standby it
-  slows to a **60 s audio-only probe** — the same cadence as the TV's own
-  heartbeat, which the soundbar tolerates while going to deep sleep. This
-  is essential: a fast vendor poll keeps the bar in *soft* standby forever
-  (its CEC stays unmuted) and the deep-standby mute signal would never
-  arrive. Any push or command switches back to fast polling immediately.
+  live-verified to wake the bar from **deep standby** (twice verified: the
+  waking bar broadcasts SAM-on and pushes audio status). Verification is
+  **passive**: if the bar emits no frame within 8 s, the wake failed and the
+  state honestly reverts to *standby* — no extra queries are sent (any query
+  prevents the bar from entering its auto-standby "BYE" → deep sleep).
+- **Power state is event-driven** — this device *lies* over CEC: `Report
+  Power Status` says *On* in every state and the audio-status mute bit
+  fluctuates even while off (both live-verified). So the integration does
+  **not poll for state at all**. Instead:
+  - HA commands set the state optimistically, and after power-off the
+    integration **silences all traffic** toward the bar so it can go
+    *BYE* → deep sleep → the red LED turns off like it should
+  - events from the bar update the state: SAM-on broadcast (wake/input),
+    spontaneous audio-status push (IR volume/mute), `90:01` standby report
+  - within the active window (10 min after the last command/push) the
+    integration polls volume/EQ normally; after it, **zero queries** until
+    the next event
+- Known limits: turning the bar off by IR (not via HA) is picked up only if
+  the bar emits a standby report; the state is *unknown* after an HA restart
+  until the first event or command arrives.
 
 ## Limitations / notes
 

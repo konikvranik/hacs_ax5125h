@@ -120,33 +120,29 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   korrumpují NVRAM (opraveno ve 0.3.0 — starší buildy zapisovaly posunutý
   item; oprava přes RTVR SetState + jednou oficiálně z IR menu)
 
-## Zapnutí / vypnutí a stav napájení (0.5.0 — živě ověřeno)
+## Zapnutí / vypnutí a stav napájení (0.7.0 — eventový model, živě ověřeno)
 
 - **VYP** = CEC `<Standby>` (0x36), funguje spolehlivě.
 - **ZAP** = **UCP Power On** (`0x44 0x6D` + `0x45 0x6D`) — jediný rámec
-  živě ověřený jako wake z **hlubokého standby** (zhasnutá LED; dvakrát
-  ověřeno: bar odpoví SAM-on broadcastem + unmute). Set Stream Path, Active
-  Source, IVO ani SAM rámce ho nezobudí (sweepem ověřené ticho). Výsledek
-  se **verifikuje** pollem audio statusu (unmute = probuzeno); když mute
-  přetrvává, jde fallback Set Stream Path + Active Source (zkus měkkou
-  fázi), a pokud nic nezabere, stav se poctivě vrátí na *standby*
-  (žádné zaseknuté optimistické *on*).
-- **Stav napájení**: CEC `Report Power Status` (0x8F) je na tomto zařízení
-  **k ničemu** — hlásí `On` vždy. Jediný stavový signál je **mute bit** v
-  `Report Audio Status` (0x71→0x7A), vyhodnocovaný kontextově: spontánní
-  `7A` push (IR/HA mute či volume) znamená, že bar žije → *on*, i když je
-  ztlumený; mute přechod viděný **jen** pollem (hluboký standby neprodukuje
-  žádné rámce) → *standby*; poll-unmute v soft-standby okně těsně po HA
-  vypnutí zůstává *standby* (tmavá měkká fáze hlásí unmute). Media player
-  stav to zrcadlí.
-- **Adaptivní polling**: když je bar *on* a aktivní (jakýkoliv HA příkaz
-  nebo push ze soundbaru během posledních 10 min), pollí integrace
-  konfigurovaným intervalem včetně vendor dotazů. V idle/standby zpomalí na
-  **60 s audio-only probe** — stejná cadence, jakou má TV heartbeat, který
-  soundbaru brání v hlubokém spánku nejvýš tolik, kolik snese. To je
-  nezbytné: rychlý vendor poll drží bar v *měkkém* standby navždy (CEC
-  zůstává unmute) a mute signál hlubokého standby by nikdy nedorazil.
-  Každý push nebo příkaz vrátí rychlý polling okamžitě.
+  živě ověřený jako wake z **hlubokého standby** (dvakrát ověřeno:
+  probuzený bar broadcastne SAM-on a pushne audio status). Verifikace je
+  **pasivní**: nepřijde-li do 8 s žádný rámec ze soundbaru, probuzení se
+  nepovedlo a stav se poctivě vrací na *standby* — žádné další dotazy
+  (jakýkoliv dotaz baru brání v auto-standby „BYE" → hluboký spánek).
+- **Stav napájení je eventový** — tohle zařízení přes CEC *lže*: `Report
+  Power Status` hlásí *On* vždy a mute bit kolísá i ve vypnutém stavu (obojí
+  živě ověřeno). Integrace proto **nestav polluje vůbec**. Místo toho:
+  - HA příkazy nastavují stav optimisticky a po vypnutí integrace
+    **úplně utíchne** směrem k baru, aby mohl projít *BYE* → hluboký
+    spánek → červená LED zhasne, jak má
+  - stav aktualizují události ze soundbaru: SAM-on broadcast
+    (probuzení/přepnutí vstupu), spontánní audio-status push (IR
+    volume/mute), `90:01` standby report
+  - v aktivním okně (10 min od posledního příkazu/pushu) pollí integrace
+    volume/EQ normálně; potom **nula dotazů** až do další události
+- Známé limity: vypnutí IR ovladačem (mimo HA) se zachytí jen pokud bar vyšle
+  standby report; po restartu HA je stav *neznámý* do první události nebo
+  příkazu.
 
 ## Omezení / poznámky
 

@@ -31,17 +31,15 @@ _LOGGER = logging.getLogger(__name__)
 #: Po zapnutí bus logu potřebuje gateway chvíli, než začne publikovat rx.
 BUS_LOG_WARMUP = 1.0
 
-#: Idle prah (s bez jakékoli aktivity/push) — po něm přejdeme na pomalý
-#: audio-only poll, aby se soundbar mohl dostat do hlubokého standby.
-#: Důvod: rychlý vendor poll drží bar v měkkém standby navždy (pozorování
-#: uživatele: s běžící integrací červená LED nikdy nezhasla), a mute bit
-#: hlubokého standby je jediný spolehlivý stavový signál AX5125H.
+#: Idle prah (s bez jakékoli aktivity/push) — po něm přejdeme do silent
+#: módu: ŽÁDNÉ dotazy směrem k baru. Jakýkoliv CEC dotaz totiž baru brání
+#: v auto-standby (neprojde „BYE" do hlubokého spánku, pozorování
+#: uživatele: BYE → LED zhasne za sekundy, pokud nic dotazy neruší).
 IDLE_AFTER = 600.0
 
-#: Poll cadence v idle/standby — shodná s TV heartbeat (60 s), který hluboký
-#: standby soundbaru nebrání (ověřeno živě: TV pinguje 05:8F každých 60 s
-#: a bar normálně zhluboka usne).
-STANDBY_POLL_INTERVAL = 60
+#: Cadence silent módu — cyklus posílá NULA rámců (jen bookkeeping a
+#: re-evaluace cadence); push zprávy stav aktualizují okamžitě i tak.
+IDLE_POLL_INTERVAL = 900
 
 
 class SoundbarCoordinator(DataUpdateCoordinator[dict]):
@@ -62,7 +60,7 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
         self.entry = entry
         self.client = client
         self._active_interval = interval
-        self._active = True
+        self._traffic = True
         self._bus_log_entity = entry.data.get(CONF_BUS_LOG_SWITCH) or None
         self._power_entity = entry.data.get(CONF_POWER_ENTITY) or None
         self._bus_log_ever_on = False
@@ -70,14 +68,12 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
     def handle_push(self, data: dict) -> None:
         """Callback pro push z klienta (0x90/0x82/0x7A/A5/...).
 
-        Standby report je při přepnutí vstupu přechodný/fake (na OPT/AUX/
-        USB/BT soundbar hraje, i když CEC hlásí standby) — publikujeme,
-        ale hned pustíme verifikační refresh (single-flight: slučuje se
-        se scheduled refreshem), aby se stav rychle opravil.
+        Publikuje stav okamžitě a přepolluje cadenci: push = aktivita →
+        aktivní okno (rychlý poll), standby událost → silent mód (nula
+        dotazů, ať bar projde BYE do hlubokého spánku).
         """
         self.async_set_updated_data(data)
-        if data.get("power") in ("standby", "turning_off"):
-            self.hass.async_create_task(self.async_refresh())
+        self._adapt_polling(data)
 
     async def _async_update_data(self) -> dict:
         try:
@@ -86,34 +82,38 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
                 self.client.data["last_seen"] = time.time()
                 return self.client.data
             await self._ensure_bus_log()
-            result = await self.client.async_refresh(audio_only=not self._active)
+            result = await self.client.async_refresh(traffic=self._traffic)
             self._adapt_polling(result)
             return result
         except (EzplayError, TransportError) as exc:
             raise UpdateFailed(str(exc)) from exc
 
     def _adapt_polling(self, data: dict) -> None:
-        """Přepíná cadenci dle AKTIVITY (ne power stavu): poslední HA příkaz
-        nebo push ze soundbaru < IDLE_AFTER = plný poll konfigurovaným
-        intervalem; jinak 60 s audio-only probe.
-
-        Aktivita NEZJIŠŤUJEME z power stavu — poll-unmute z měkkého standby
-        překlopí stav na on, a kdyby ten flip pustil rychlý vendor poll,
-        držel by bar v měkkém standby navždy (nekonečné on/off oscilace,
-        pozorováno 0.6.0). Push zprávy (0x7A/A5/…) a HA příkazy aktivitu
-        obnovují okamžitě, takže rychlý poll se vrací bez čekání.
+        """Cadence dle stavu a aktivity:
+        - standby NEBO neaktivní (> IDLE_AFTER bez příkazu/pushu) = silent
+          mód (IDLE_POLL_INTERVAL, traffic=False) — nula dotazů, ať bar
+          projde BYE do hlubokého spánku;
+        - aktivní (on + poslední příkaz/push < IDLE_AFTER) = konfigurovaný
+          interval s plným refreshem.
+        Push zprávy (0x7A/A5/72:01/…) a HA příkazy aktivitu obnovují
+        okamžitě (client nastavuje last_activity), takže rychlý mód se
+        vrací bez čekání.
         """
-        active = time.time() - data.get("last_activity", 0.0) < IDLE_AFTER
-        self._active = active
+        standby = data.get("power") == "standby"
+        active = (
+            not standby
+            and time.time() - data.get("last_activity", 0.0) < IDLE_AFTER
+        )
+        self._traffic = active
         target = timedelta(
-            seconds=self._active_interval if active else STANDBY_POLL_INTERVAL
+            seconds=self._active_interval if active else IDLE_POLL_INTERVAL
         )
         if self.update_interval != target:
             self.update_interval = target
             _LOGGER.debug(
                 "poll cadence → %s (%s)",
                 target,
-                "aktivní" if active else "idle/standby",
+                "aktivní" if active else "silent (nula dotazů)",
             )
 
     async def async_power_on(self) -> None:
