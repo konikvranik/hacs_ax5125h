@@ -486,6 +486,42 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t.sent[1], (0, SB, [0x36]))
         self.assertEqual(c.data["power"], "standby")
 
+    async def test_power_off_settle_ignores_shutdown_choreography(self):
+        """#20: hned po OFF bar broadcastne 72:01 (úvod ohlášení SAM role)
+        a pushne 7A unmuted — přechodové rámce nesmí překlopit power/vstup."""
+        t = FakeTransport()
+        c = make_client(t)
+        c.data["input"] = "hdmi"
+        await c.async_power_off()
+        # barova vypínací choreografie (živý záznam 00:35:54):
+        c._handle_frame(SB, 0xF, [0x72, 0x01])          # 5F:72:01
+        c._apply_audio((False, 17), is_reply=False)     # spontánní 7A unmuted
+        self.assertEqual(c.data["power"], "standby")    # zůstává vypnutý!
+        self.assertEqual(c.data["input"], "hdmi")       # neskočí v arc!
+        # po skončení okna je 72:01 zase plnohodnotný signál
+        c._off_settle_until = float("-inf")
+        c._handle_frame(SB, 0xF, [0x72, 0x01])
+        self.assertEqual(c.data["power"], "on")
+        self.assertEqual(c.data["input"], "arc")
+
+    async def test_power_off_double_suppressed(self):
+        """#20: druhý OFF do 60 s neodesílá nic — TV by s barem přenegociovala
+        ARC (C3/C0/C1 storm) a bar zůstal vzhůru."""
+        t = FakeTransport()
+        c = make_client(t)
+        await c.async_power_off()
+        self.assertEqual(len(t.sent), 2)
+        await c.async_power_off()                       # hned znovu
+        self.assertEqual(len(t.sent), 2)                # žádné nové rámce
+        self.assertEqual(c.data["power"], "standby")
+        # explicitní ON debounce zruší — off-on-off posílá vypnutí znovu
+        t.sent.clear()
+        await c.async_power_on()                        # (nebude probouzet —
+        #   rx capable fake bez skriptu; jen kontrolujeme reset debouncu)
+        await c.async_power_off()
+        self.assertEqual([p[2] for p in t.sent][-2:], [[0x70, 0x00, 0x00],
+                                                       [0x36]])
+
     async def test_set_mute(self):
         t = FakeTransport()
         c = make_client(t)

@@ -34,6 +34,16 @@ RTVR_SURR_PRO = 1
 RTVR_SURR_OFF = 2
 #: Po neúspěšném RTVR handshake opakovat nejdřív za (s):
 RTVR_RETRY_MIN = 300.0
+#: Okno po explicitním power_off (s), během nějž bar vysílá vypínací
+#: choreografii a její přechodové rámce nesmí překlápět stav. Živě změřeno
+#: (research-log #20): na `0x70,0x00,0x00`+`0x36` bar okamžitě broadcastne
+#: `72:01` (ohlášení SAM role — tentýž rámec jako při probuzení!), pushne
+#: `7A` unmuted, teprve pak C5 Terminate ARC → `72:00` → `7A` muted.
+_OFF_SETTLE = 15.0
+#: Dvojitý OFF (podruhé během tohoto okna) se neposílá — živě změřeno
+#: (#20): druhá dvojice terminate+standby 12 s po první spustila kompletní
+#: ARC re-negociaci s TV (C3/C0/C1, SAD handshake) a bar zůstal vzhůru.
+_OFF_DEBOUNCE = 60.0
 
 #: Opkody, které jsou odpověďmi na CIZÍ poll (Give Power Status/Physical
 #: Address/Vendor ID/OSD Name) — aktivitou uživatele NEJSOU. Soundbar na
@@ -103,6 +113,13 @@ class EzplayClient:
         #: malý je monotonic čas (čerstvě nabootovaný host by první pokus
         #: s 0.0 potlačil na celých RTVR_RETRY_MIN)
         self._rtvr_last_attempt = float("-inf")
+        #: -inf = „žádné nedávné vypnutí“ — během tohoto okna bar vysílá
+        #: vypínací choreografii (72:01 ohlášení SAM role, spontánní 7A),
+        #: kterou v žádném případě nesmíme číst jako „zapnuto“ (živě: OFF
+        #: 00:35:54 → 5F:72:01 o milisekundy později → HA ukázal on+arc)
+        self._off_settle_until = float("-inf")
+        #: čas posledního explicitního power_off (debounce dvojitého OFF)
+        self._off_last = float("-inf")
         #: Transport nedodává rx (hdmi_cec integrace)? Pak vendor zápisy jen
         #: optimistické a refresh neposílá dotazy (žádné timeouty).
         self.rx_capable = bool(getattr(transport, "supports_rx", True))
@@ -206,9 +223,11 @@ class EzplayClient:
                 self._apply_source_pa(pa)
         elif opcode == ez.OP_SET_SYSTEM_AUDIO_MODE and \
                 src == self._sb_addr and dst == 0xF and len(payload) >= 2:
-            # SAM On (5F:72:01) = soundbar se stal TV audio (ARC/eARC) —
-            # broadcastuje ho i při probuzení (UCP/IR) → znamená „je živý"
-            if payload[1] == 1:
+            # SAM On (5F:72:01) = ohlášení TV-audio role. Není to wake
+            # signál: bar ho broadcastuje při probuzení (UCP/IR) I na
+            # začátku vypínací choreografie (živě #20) — jako power/input
+            # signál platí jen mimo okno po explicitním power_off.
+            if payload[1] == 1 and time.monotonic() >= self._off_settle_until:
                 self.data["input"] = "arc"
                 self.data["power"] = "on"
         elif opcode == ez.OP_USER_CONTROL_PRESSED and dst == self._sb_addr and len(payload) >= 2:
@@ -247,7 +266,10 @@ class EzplayClient:
         self.data["mute"], self.data["volume"] = audio
         if not is_reply:
             self.data["last_activity"] = time.time()
-            self.data["power"] = "on"
+            # spontánní 7A = „bar živý“… kromě vypínací choreografie: unmuted
+            # push těsně před C5/72:00 je přechodový rámec, ne probuzení (#20)
+            if time.monotonic() >= self._off_settle_until:
+                self.data["power"] = "on"
 
     async def _send_give_audio_status(self) -> None:
         try:
@@ -481,6 +503,10 @@ class EzplayClient:
         a stav se poctivě vrací na standby.
         """
         before_activity = self.data.get("last_activity", 0.0)
+        # explicitní ON ruší ochranné okno po OFF i debounce — od teď
+        # jsou události ze baru zase plnohodnotné signály
+        self._off_settle_until = float("-inf")
+        self._off_last = float("-inf")
         await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
         await self._send(
             self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
@@ -507,7 +533,18 @@ class EzplayClient:
         """Převede soundbar do standby: SAM Request terminate (uvolní ARC/SAM
         stav — jinak TV s barem jede ARC handshake smyčku a nepustí ho do
         BYE/deep, #15) + CEC 0x36 Standby. Optimisticky standby; integrace
-        hned utlumí veškerý provoz směrem k baru (silent mód)."""
+        hned utlumí veškerý provoz směrem k baru (silent mód).
+
+        Debounce (#20): druhý OFF do 60 s se neposílá — bar vypínací
+        choreografii už provádí a další terminate+standby s ním TV
+        přenegociuje ARC (C3/C0/C1 + SAD handshake) — bar zůstane vzhůru."""
+        now = time.monotonic()
+        if now < self._off_last + _OFF_DEBOUNCE:
+            self.data["power"] = "standby"
+            self._notify()
+            return
+        self._off_last = now
+        self._off_settle_until = now + _OFF_SETTLE
         self.data["last_activity"] = time.time()
         await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
