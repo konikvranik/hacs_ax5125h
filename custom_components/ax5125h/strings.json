@@ -77,7 +77,7 @@
       "eq": { "name": "EQ", "state": { "MUSIC": "Music", "MOVIE": "Movie", "NEWS": "News", "SPORT": "Sport", "NIGHT": "Night", "GAME": "Game", "AI EQ": "AI EQ" } },
       "surround": { "name": "Surround", "state": { "PURE": "Pure", "PRO": "Pro", "OFF": "Off" } },
       "dimmer": { "name": "Display brightness" },
-      "input": { "name": "Input", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN" } }
+      "input": { "name": "Input", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN", "OPTICAL": "Optical", "AUX": "AUX", "USB": "USB", "BT": "Bluetooth" } }
     },
     "number": {
       "bass": { "name": "Bass" },
@@ -110,6 +110,13 @@
     },
     "volume_up": { "name": "Volume up", "description": "Volume up via CEC UCP." },
     "volume_down": { "name": "Volume down", "description": "Volume down via CEC UCP." },
-    "mute_toggle": { "name": "Toggle mute", "description": "Mute toggle via CEC UCP." }
+    "mute_toggle": { "name": "Toggle mute", "description": "Mute toggle via CEC UCP." },
+    "source_pressed": {
+      "name": "IR source pressed",
+      "description": "Tracks an IR remote SOURCE press — cycles the input ARC → HDMI → Optical → AUX → USB → BT. CEC cannot see switches to Optical/AUX/USB/BT (the soundbar emits no frames for them), so call this from an automation triggered by your IR receiver to keep the input state in sync.",
+      "fields": {
+        "entity_id": { "name": "Entity", "description": "Any soundbar entity." }
+      }
+    }
   }
 }

@@ -19,15 +19,15 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | Surround | select | PURE / PRO / OFF | ✅ |
 | Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
 | Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
-| Volume | sensor | 0–100 % (CEC 0x71→0x7D, auto-SAM request activation + auto-query on UCP) | ✅ |
-| Mute | switch | mute state (read via 0x7D + UCP 0x43 toggling) | ✅ |
+| Volume | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request activation + auto-query on UCP) | ✅ |
+| Mute | switch | mute state (read via 0x7A + UCP 0x43 toggling) | ✅ |
 | Volume +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Input → ARC** | select | System Audio Mode Request as the TV (`0;5;0x70,0x00,0x00`) | ✅ |
 | **Input → HDMI IN** | select | Active Source as the gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
 | Push changes from menu/remote | — | EZPlay `A5` inform → instant entity updates | ✅ |
 | EZPlay support features | sensor (diagnostic) | `91 9F 06` | ✅ |
 | Active source (bus) | sensor (diagnostic) | 0x82 broadcasts | ✅ |
-| Services | `send_raw`, `volume_up/down`, `mute_toggle` | guard rails against destructive subopcodes | ✅ |
+| Services | `send_raw`, `volume_up/down`, `mute_toggle`, `source_pressed` | `source_pressed` = IR SOURCE press tracking; guard rails against destructive subopcodes | ✅ |
 
 Neural:X / Virtual:X and the OPT/AUX/USB/BT inputs are **not** reachable over
 CEC (definitively verified — see the research notes below).
@@ -125,9 +125,13 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   the switch can trigger a transient Standby report from the soundbar, which
   Kodi (libcec) sometimes reacts to by going to sleep
   (`standby_pc_on_tv_standby`). Existing behaviour, see the docs.
-- The current input is inferred (Active Source broadcasts + optimistic update
-  after a command) — the soundbar does not report its input by itself.
-- Volume is relative only (UCP ± / mute) plus the 0x7D readout; the EZPlay
+- Input state: ARC/HDMI are detected via CEC anchors (SAM On broadcast,
+  Routing Change/Active Source/Set Stream Path). OPT/AUX/USB/BT emit **no**
+  CEC frames at all — their state is tracked by counting IR SOURCE presses
+  (cycle ARC→HDMI→OPT→AUX→USB→BT): call the `source_pressed` service from an
+  automation triggered by your IR receiver. Selecting those inputs in the
+  UI raises (CEC cannot switch to them).
+- Volume is relative only (UCP ± / mute) plus the 0x7A readout; the EZPlay
   `AC Set_Volume` opcode has an unverified value format and is deliberately
   unused.
 - After a reboot the soundbar ignores vendor commands for ~30 s (standard CEC

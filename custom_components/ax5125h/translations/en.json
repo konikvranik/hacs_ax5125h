@@ -101,7 +101,11 @@
         "name": "Input",
         "state": {
           "ARC": "ARC (TV/eARC)",
-          "HDMI": "HDMI IN"
+          "HDMI": "HDMI IN",
+          "OPTICAL": "Optical",
+          "AUX": "AUX",
+          "USB": "USB",
+          "BT": "Bluetooth"
         }
       }
     },
@@ -175,6 +179,16 @@
     "mute_toggle": {
       "name": "Toggle mute",
       "description": "Mute toggle via CEC UCP."
+    },
+    "source_pressed": {
+      "name": "IR source pressed",
+      "description": "Tracks an IR remote SOURCE press — cycles the input ARC → HDMI → Optical → AUX → USB → BT. CEC cannot see switches to Optical/AUX/USB/BT (the soundbar emits no frames for them), so call this from an automation triggered by your IR receiver to keep the input state in sync.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "Any soundbar entity."
+        }
+      }
     }
   }
 }

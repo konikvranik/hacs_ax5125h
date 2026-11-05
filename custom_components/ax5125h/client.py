@@ -421,6 +421,23 @@ class EzplayClient:
         self.data["power"] = "standby"
         self._notify()
 
+    async def async_source_pressed(self) -> str:
+        """IR SOURCE stisk — posune vstupní cyklus (optimistický tracking).
+
+        OPT/AUX/USB/BT nevysílají na CEC nic, přepnutí na ně se detekuje
+        počítáním stisků SOURCE z IR automatizace (service source_pressed).
+        Neznámý stav: default po bootu je ARC.
+        """
+        current = self.data.get("input")
+        if current not in ez.INPUT_CYCLE:
+            current = "arc"
+        nxt = ez.INPUT_CYCLE[
+            (ez.INPUT_CYCLE.index(current) + 1) % len(ez.INPUT_CYCLE)
+        ]
+        self.data["input"] = nxt
+        self._notify()
+        return nxt
+
     async def async_set_mute(self, enable: bool) -> None:
         """Nastaví stav mute (přepne UCP Mute pokud stav neodpovídá)."""
         current = self.data.get("mute")

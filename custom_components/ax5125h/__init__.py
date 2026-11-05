@@ -137,9 +137,17 @@ async def async_setup(hass: HomeAssistant, config) -> None:
         DOMAIN, "volume_down", partial(_volume_key, UCP_VOLUME_DOWN),
         schema=TARGET_SCHEMA,
     )
+    async def _source_pressed(call: ServiceCall) -> None:
+        """IR SOURCE stisk — posune vstupní cyklus (OPT/AUX/USB/BT tracking)."""
+        _, client = _client_of_call(hass, call)
+        await client.async_source_pressed()
+
     hass.services.async_register(
         DOMAIN, "mute_toggle", partial(_volume_key, UCP_MUTE_TOGGLE),
         schema=TARGET_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN, "source_pressed", _source_pressed, schema=TARGET_SCHEMA,
     )
     return True
 

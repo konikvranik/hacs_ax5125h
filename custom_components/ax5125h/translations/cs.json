@@ -77,7 +77,7 @@
       "eq": { "name": "EQ", "state": { "MUSIC": "Hudba", "MOVIE": "Film", "NEWS": "Zprávy", "SPORT": "Sport", "NIGHT": "Noc", "GAME": "Hra", "AI EQ": "AI EQ" } },
       "surround": { "name": "Surround", "state": { "PURE": "Pure", "PRO": "Pro", "OFF": "Vypnuto" } },
       "dimmer": { "name": "Jas displeje" },
-      "input": { "name": "Vstup", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN" } }
+      "input": { "name": "Vstup", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN", "OPTICAL": "Optický", "AUX": "AUX", "USB": "USB", "BT": "Bluetooth" } }
     },
     "number": {
       "bass": { "name": "Bas" },
@@ -110,6 +110,13 @@
     },
     "volume_up": { "name": "Hlasitost +", "description": "Volume up přes CEC UCP." },
     "volume_down": { "name": "Hlasitost −", "description": "Volume down přes CEC UCP." },
-    "mute_toggle": { "name": "Přepnout mute", "description": "Mute toggle přes CEC UCP." }
+    "mute_toggle": { "name": "Přepnout mute", "description": "Mute toggle přes CEC UCP." },
+    "source_pressed": {
+      "name": "Stisk IR SOURCE",
+      "description": "Sleduje stisk SOURCE na IR ovladači — posune vstupní cyklus ARC → HDMI → Optický → AUX → USB → BT. Přepnutí na optický/AUX/USB/BT CEC nevidí (soundbar na ně nevysílá žádné rámce) — volej z automatizace spouštěné IR přijímačem, aby integrace držela stav vstupu v syncu.",
+      "fields": {
+        "entity_id": { "name": "Entita", "description": "Libovolná entita soundbaru." }
+      }
+    }
   }
 }

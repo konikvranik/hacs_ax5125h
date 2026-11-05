@@ -27,7 +27,18 @@ from .transports import TransportError
 
 _LOGGER = logging.getLogger(__name__)
 
-INPUT_OPTIONS = ("ARC", "HDMI")
+#: Vstup select: klíč -> label. OPT/AUX/USB/BT CEC nevysílá nic — stav se
+#: drží počítáním IR SOURCE stisků (service source_pressed) a CEC kotvy
+#: (SAM On, Routing Change/Active Source) ho korigují.
+INPUT_LABELS = {
+    "arc": "ARC",
+    "hdmi": "HDMI",
+    "opt": "OPTICAL",
+    "aux": "AUX",
+    "usb": "USB",
+    "bt": "BT",
+}
+_LABEL_TO_INPUT = {v: k for k, v in INPUT_LABELS.items()}
 
 
 async def async_setup_entry(
@@ -135,25 +146,35 @@ class DimmerSelect(_BaseSelect):
 
 
 class InputSelect(_BaseSelect):
-    """Vstup: ARC (SAM Request za TV) / HDMI IN (Active Source za gateway).
+    """Vstup: ARC (SAM Request za TV) / HDMI IN (Active Source za gateway)
+    se přepínají CEC; OPT/AUX/USB/BT jen sledujeme (počítání SOURCE stisků).
 
-    Aktuální stav je odvozený z Active Source broadcastů + optimisticky po
-    příkazu (soundbar svůj vstup nehlásí).
+    Aktuální stav je odvozený z CEC kotev + počítání IR SOURCE stisků +
+    optimisticky po příkazu (soundbar svůj vstup sám nehlásí).
     """
 
     _attr_icon = "mdi:video-input-hdmi"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
-        super().__init__(coordinator, "input", INPUT_OPTIONS)
+        super().__init__(coordinator, "input", tuple(INPUT_LABELS.values()))
 
     @property
     def current_option(self) -> str | None:
-        value = self.sb_data.get("input")
-        return value.upper() if value in ("arc", "hdmi") else None
+        return INPUT_LABELS.get(self.sb_data.get("input"))
 
     async def async_select_option(self, option: str) -> None:
+        key = _LABEL_TO_INPUT.get(option)
+        if key is None:
+            return
+        if key not in ("arc", "hdmi"):
+            raise HomeAssistantError(
+                f"vstup {option} nelze přes CEC přepnout — soundbar na něj "
+                "nereaguje žádným rámcem. Přepni IR ovladačem (nebo IR "
+                "blasterem) a zavolej service ax5125h.source_pressed, aby "
+                "integrace stav sledovala."
+            )
         try:
-            await self.coordinator.client.async_set_input(option.lower())
+            await self.coordinator.client.async_set_input(key)
         except (EzplayError, TransportError, ValueError) as exc:
             raise HomeAssistantError(str(exc)) from exc
         self.coordinator.async_update_listeners()

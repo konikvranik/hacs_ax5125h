@@ -18,15 +18,16 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | Surround | select | PURE / PRO / OFF | ✅ |
 | Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
 | Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
-| Hlasitost | sensor | 0–100 % (CEC 0x71→0x7D, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
-| Mute | switch | stav ztlumení (čtení z 0x7D + UCP 0x43 přepínání) | ✅ |
+| Hlasitost | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
+| Mute | switch | stav ztlumení (čtení z 0x7A + UCP 0x43 přepínání) | ✅ |
 | Hlasitost +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Vstup → ARC** | select | SAM Request jako TV (`0;5;0x70,0x00,0x00`) | ✅ |
 | **Vstup → HDMI IN** | select | Active Source za gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
 | Push změny z menu/ovladače | — | EZPlay `A5` inform → okamžitá aktualizace entit | ✅ |
 | EZPlay support features | sensor (diagnostika) | `91 9F 06` | ✅ |
 | Active source (sběrnice) | sensor (diagnostika) | 0x82 broadcasty | ✅ |
-| Služby | `send_raw`, `volume_up/down`, `mute_toggle` | pojistka proti destruktivním subopcodům | ✅ |
+| Vstup OPT/AUX/USB/BT tracking | select + služba `source_pressed` | počítání IR SOURCE stisků (CEC na tyto vstupy nevysílá nic); kotvy ARC/HDMI (SAM On, Routing Change) stav korigují | ✅ |
+| Služby | `send_raw`, `volume_up/down`, `mute_toggle`, `source_pressed` | `source_pressed` = tracking IR SOURCE stisku; pojistka proti destruktivním subopcodům | ✅ |
 
 Neural:X / Virtual:X a vstupy OPT/AUX/USB/BT **nejsou** přes CEC dostupné
 (definitivně ověřeno — viz výzkumná dokumentace níže).
@@ -120,9 +121,13 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   může vyvolat přechodový Standby report soundbaru, na který Kodi (libcec)
   občas reaguje uspáním (`standby_pc_on_tv_standby`). Existující chování, viz
   dokumentace.
-- Aktuální vstup je inference (Active Source broadcasty + optimistická
-  aktualizace po příkazu) — soundbar svůj vstup sám nehlásí.
-- Hlasitost je jen relativní (UCP ± / mute) + čtení 0x7D; EZPlay `AC
+- Stav vstupu: ARC/HDMI se detekují přes CEC kotvy (SAM On broadcast,
+  Routing Change/Active Source/Set Stream Path). OPT/AUX/USB/BT na CEC
+  **nevysílají vůbec nic** — jejich stav se drží počítáním IR SOURCE
+  stisků (cyklus ARC→HDMI→OPT→AUX→USB→BT): volej službu `source_pressed`
+  z automatizace spouštěné IR přijímačem. Výběr těchto vstupů v UI skončí
+  chybou (CEC na ně přepnout neumí).
+- Hlasitost je jen relativní (UCP ± / mute) + čtení 0x7A; EZPlay `AC
   Set_Volume` má neověřený formát hodnoty a záměrně se nepoužívá.
 - Soundbar po rebootu ~30 s ignoruje vendor příkazy (standardní CEC init).
 

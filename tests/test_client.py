@@ -346,6 +346,21 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
         self.assertEqual(c.data["power"], "on")
 
+    async def test_source_pressed_cycles_inputs(self):
+        """IR SOURCE stisk posouvá cyklus ARC→HDMI→OPT→AUX→USB→BT→ARC;
+        neznámý stav startuje v ARC (default po bootu)."""
+        t = FakeTransport()
+        c = make_client(t)
+        c.data["input"] = "hdmi"
+        self.assertEqual(await c.async_source_pressed(), "opt")
+        self.assertEqual(await c.async_source_pressed(), "aux")
+        self.assertEqual(await c.async_source_pressed(), "usb")
+        self.assertEqual(await c.async_source_pressed(), "bt")
+        self.assertEqual(await c.async_source_pressed(), "arc")
+        self.assertEqual(c.data["input"], "arc")
+        c.data["input"] = None
+        self.assertEqual(await c.async_source_pressed(), "hdmi")
+
     async def test_power_off(self):
         t = FakeTransport()
         c = make_client(t)

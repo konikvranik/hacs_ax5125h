@@ -81,6 +81,12 @@ DIMMER_INTERNAL_MAX = 4
 BASS_TREBLE_MIN = -5
 BASS_TREBLE_MAX = 5
 
+#: Cyklus vstupů při IR SOURCE stisku (ARC→HDMI IN→OPTICAL→AUX→USB→BT).
+#: OPT/AUX/USB/BT na CEC nevysílají vůbec nic (docs soundbar-ax5125h,
+#: definitivně prozkoumáno) — jejich stav jde držet jen počítáním stisků;
+#: CEC kotvy (SAM On, Routing Change/Active Source) stav korigují zpět.
+INPUT_CYCLE = ("arc", "hdmi", "opt", "aux", "usb", "bt")
+
 #: UCP kódy hlasitosti a napájení
 UCP_VOLUME_UP = 0x41
 UCP_VOLUME_DOWN = 0x42
