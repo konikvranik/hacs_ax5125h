@@ -40,6 +40,7 @@ PLATFORMS = (
     Platform.SENSOR,
     Platform.BUTTON,
     Platform.SWITCH,
+    Platform.MEDIA_PLAYER,
 )
 
 DATA_CLIENT = "client"

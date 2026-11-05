@@ -18,7 +18,8 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | Bass / Treble | number (slider) | −5 … +5 | ✅ |
 | Surround | select | **PURE / PRO / OFF** (tri-state read & written via Roku RTVR — EZPlay item2 is binary-only) | ✅ |
 | Display brightness (dimmer) | number (slider) | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
-| Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
+| Power | switch | power on (**Set Stream Path broadcast** — wakes even from deep standby, live-verified) / standby (CEC 0x36) | ✅ |
+| **Media player** | media_player | **`volume_set` for voice assistant** (absolute 0–100 %), volume up/down, mute, power, source select | ✅ |
 | Volume | number (slider) | 0–100 % **absolute set** (EZPlay Set_Volume) + IR/UCP changes tracked (0x71→0x7A readback/push) | ✅ |
 | Mute | switch | mute state (read via 0x7A + UCP 0x43 toggling) | ✅ |
 | Volume +/− | button | CEC UCP (0x44/0x45) | ✅ |
@@ -89,10 +90,11 @@ The UI is localized (English + Czech); HA picks the language automatically.
 The config flow asks for transport parameters, then for shared CEC parameters
 (defaults for the usual topology in parentheses):
 
-- **Poll interval** (30 s; min 10 s) — each poll = power status, the
-  all-params query (A0→A1) and audio status; push changes (A5) arrive
+- **Poll interval** (30 s; min 10 s) — each poll = audio status (power/volume/
+  mute), then (when on) the all-params query (A0→A1); push changes (A5) arrive
   out-of-band
 - **Physical address of HDMI IN** (`3.1.0.0`) — where Active Source switches to
+  **and which port the power-ON Set Stream Path targets**
 - **TV address** (0), **soundbar** (5), **gateway** (0xE = 14)
 
 Change later via *Configure* on the integration entry.
@@ -120,6 +122,24 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 - bass/treble are written in +0x80 wire encoding (item 3/4); out-of-range
   writes corrupt NVRAM (fixed in 0.3.0 — earlier builds wrote shifted item
   ids; repair via RTVR SetState + one official IR change)
+
+## Power ON/OFF and power state (0.5.0 — live-verified)
+
+- **OFF** = CEC `<Standby>` (0x36), works reliably.
+- **ON** = **`Set Stream Path` broadcast targeting the port BEHIND the
+  soundbar** (HDMI IN, e.g. `0;F;0x86,0x31,0x00`). This is the only CEC frame
+  the AX5125H actually wakes to — verified live even from **deep standby**
+  (red LED off). UCP Power On (0x6D), SAM Request (0x70) and Set System Audio
+  Mode (0x72) are all ignored while dark. It is the same mechanism Kodi/TV
+  use: they announce an active source behind the bar and it turns on to route.
+  Side effect: the bar wakes on its HDMI IN input.
+- **Power state**: the CEC `Report Power Status` (0x8F) is **useless on this
+  device** — it reports `On` in every state. The only state signal is the
+  **mute bit** of `Report Audio Status` (0x71→0x7A): deep standby reports
+  `mute=1`, an on/unmuted bar reports `mute=0`. Limitations: a muted-but-on
+  bar shows *standby*, and the minutes of *soft* standby right after power-off
+  (dark display, red LED still lit, CEC unmuted) still show *on* until the
+  deep-standby transition. The media_player state mirrors this.
 
 ## Limitations / notes
 

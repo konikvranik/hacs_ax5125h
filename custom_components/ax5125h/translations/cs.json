@@ -95,6 +95,9 @@
     "switch": {
       "power": { "name": "Napájení" },
       "mute": { "name": "Mute" }
+    },
+    "media_player": {
+      "soundbar": { "name": "Soundbar" }
     }
   },
   "services": {

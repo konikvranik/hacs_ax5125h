@@ -54,11 +54,8 @@ class PowerSwitch(AxEntity, SwitchEntity):
         power = self.sb_data.get("power")
         if power:
             attrs["power_status"] = power
-        # raw CEC Report Power Status — na ne-CEC vstupech (OPT/AUX/USB/BT)
-        # zůstává standby, i když soundbar hraje (proto power_status = on)
-        cec = self.sb_data.get("cec_power")
-        if cec:
-            attrs["cec_power_status"] = cec
+        # Od 0.5.0 se stav řeší přes mute bit (0x71); CEC 0x8F hlásí ON vždy
+        # (soft i deep standby) — neukazujeme ho, aby nepletl.
         return attrs
 
     async def async_turn_on(self, **kwargs: Any) -> None:

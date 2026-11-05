@@ -17,7 +17,8 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | Bass / Výšky | number (posuvník) | −5 … +5 | ✅ |
 | Surround | select | **PURE / PRO / VYPNUTO** (tri-state čtení i zápis přes Roku RTVR — EZPlay item2 je jen binární) | ✅ |
 | Jas displeje (dimmer) | number (posuvník) | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
-| Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
+| Napájení | switch | zapnutí (**Set Stream Path broadcast** — probudí i z hlubokého standby, živě ověřeno) / standby (CEC 0x36) | ✅ |
+| **Media player** | media_player | **`volume_set` pro hlasového asistenta** (absolutní 0–100 %), volume +/−, mute, napájení, výběr zdroje | ✅ |
 | Hlasitost | number (posuvník) | 0–100 % **absolutní zápis** (EZPlay Set_Volume) + změny z IR/UCP sledované (0x71→0x7A) | ✅ |
 | Mute | switch | stav ztlumení (čtení z 0x7A + UCP 0x43 přepínání) | ✅ |
 | Hlasitost +/− | button | CEC UCP (0x44/0x45) | ✅ |
@@ -87,9 +88,11 @@ UI je lokalizované (angličtina + čeština); HA jazyk vybere automaticky.
 Config flow se zeptá na parametry transportu, pak na společné parametry CEC
 (v závorkách výchozí hodnoty pro typickou topologii):
 
-- **Poll interval** (30 s; min 10 s) — každý poll = power status, all-params
-  dotaz (A0→A1) a audio status; push změny (A5) chodí mimo poll
-- **Fyzická adresa HDMI IN** (`3.1.0.0`) — kam přepínat Active Source
+- **Poll interval** (30 s; min 10 s) — každý poll = audio status
+  (power/volume/mute), pak (když on) all-params dotaz (A0→A1); push změny
+  (A5) chodí mimo poll
+- **Fyzická adresa HDMI IN** (`3.1.0.0`) — kam přepínat Active Source **a na
+  který port míří power-ON Set Stream Path**
 - **Adresa TV** (0), **soundbaru** (5), **gatewaye** (0xE = 14)
 
 Změna později přes *Konfigurovat* u záznamu integrace.
@@ -116,6 +119,24 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
 - bass/treble se zapisují v +0x80 kódování (item 3/4); hodnoty mimo rozsah
   korrumpují NVRAM (opraveno ve 0.3.0 — starší buildy zapisovaly posunutý
   item; oprava přes RTVR SetState + jednou oficiálně z IR menu)
+
+## Zapnutí / vypnutí a stav napájení (0.5.0 — živě ověřeno)
+
+- **VYP** = CEC `<Standby>` (0x36), funguje spolehlivě.
+- **ZAP** = **`Set Stream Path` broadcast mířící na port ZA soundbarem**
+  (HDMI IN, např. `0;F;0x86,0x31,0x00`). Jediný CEC rámec, kterému se AX5125H
+  skutečně probudí — živě ověřeno i z **hlubokého standby** (zhasnutá červená
+  LED). UCP Power On (0x6D), SAM Request (0x70) i Set System Audio Mode (0x72)
+  ve tmavém stavu ignoruje. Je to ten samý mechanismus, jakým ho budí Kodi/TV:
+  ohlásí aktivní zdroj za soundbarem a ten se zapne, aby stream routoval.
+  Vedlejší efekt: bar se probudí na vstupu HDMI IN.
+- **Stav napájení**: CEC `Report Power Status` (0x8F) je na tomto zařízení
+  **k ničemu** — hlásí `On` vždy. Jediný stavový signál je **mute bit** v
+  `Report Audio Status` (0x71→0x7A): hluboký standby hlásí `mute=1`,
+  zapnutý/neztlumený `mute=0`. Limitace: ztlumený (mute) rozsvícený bar ukáže
+  *standby*; pár minut *měkkého* standby těsně po vypnutí (tmavý displej,
+  červená LED svítí, CEC hlásí unmute) ještě ukazuje *on*, než dojde na
+  hluboký standby. Media player stav to zrcadlí.
 
 ## Omezení / poznámky
 

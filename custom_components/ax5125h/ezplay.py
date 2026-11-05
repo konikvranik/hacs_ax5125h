@@ -138,6 +138,16 @@ def sam_request_frame(pa: tuple[int, int] = (0x00, 0x00)) -> list[int]:
     return [OP_SYSTEM_AUDIO_MODE_REQUEST, *pa]
 
 
+def set_stream_path_frame(pa: tuple[int, int]) -> list[int]:
+    """Set Stream Path broadcast — PROBUZENÍ soundbaru (živě ověřeno
+    2026-11-05, research-log #12): jediný funkční CEC wake AX5125H, i z
+    deep standby (LED zhaslá). PA mířící na port ZA soundbarem (typicky
+    HDMI IN 3.1.0.0) — bar se přepne na ten vstup a rozsvítí; stejný
+    mechanismus, jakým ho probouzí Kodi/TV Active-Source dance.
+    (UCP 0x6D, SAM Request 0x70 i Set SAM 0x72 v dark stavu nezabírají.)"""
+    return [OP_SET_STREAM_PATH, *pa]
+
+
 def active_source_frame(pa: tuple[int, int]) -> list[int]:
     """Active Source broadcast — přepne na HDMI IN (odesílatel gateway/switch)."""
     return [OP_ACTIVE_SOURCE, *pa]

@@ -13,7 +13,7 @@
         "description": "MQTT topics of the ESPHome hdmi-cec-gateway. Requires the MQTT integration to be set up in HA.",
         "data": {
           "prefix": "MQTT topic prefix",
-          "bus_log_switch": "Switch entity \u201cCEC Bus Log Enabled\u201d (auto-enable; without it the gateway does not publish rx)"
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled” (auto-enable; without it the gateway does not publish rx)"
         }
       },
       "esphome": {
@@ -21,7 +21,7 @@
         "description": "Service esphome.<name>_cec_send. For full functionality (EZPlay as TV) the gateway needs the cec_send_src action.",
         "data": {
           "service_base": "ESPHome service",
-          "bus_log_switch": "Switch entity \u201cCEC Bus Log Enabled\u201d (auto-enable)"
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled” (auto-enable)"
         }
       },
       "hdmi_cec": {
@@ -45,12 +45,12 @@
     },
     "error": {
       "mqtt_missing": "The MQTT integration is not configured in HA.",
-      "esphome_services_missing": "No esphome.*_cec_send service found \u2014 set up the ESPHome integration first.",
-      "hdmi_cec_missing": "The HDMI-CEC integration is not configured \u2014 add `hdmi_cec:` to configuration.yaml (see {docs_url}).",
+      "esphome_services_missing": "No esphome.*_cec_send service found — set up the ESPHome integration first.",
+      "hdmi_cec_missing": "The HDMI-CEC integration is not configured — add `hdmi_cec:` to configuration.yaml (see {docs_url}).",
       "poll_too_fast": "Minimum poll interval is 10 s (be kind to the CEC bus).",
       "bad_pa": "Physical address must look like 3.1.0.0.",
       "transport_error": "Transport failed (MQTT/TCP/service unreachable).",
-      "no_response": "Soundbar did not answer \u2014 check that the CEC bus log is enabled, the addresses are right and the soundbar is on.",
+      "no_response": "Soundbar did not answer — check that the CEC bus log is enabled, the addresses are right and the soundbar is on.",
       "invalid_transport": "Unknown transport."
     },
     "abort": {
@@ -66,7 +66,7 @@
           "tv_addr": "TV logical address",
           "sb_addr": "Soundbar logical address",
           "gw_addr": "Gateway logical address",
-          "bus_log_switch": "Switch entity \u201cCEC Bus Log Enabled\u201d",
+          "bus_log_switch": "Switch entity “CEC Bus Log Enabled”",
           "power_entity": "Soundbar power entity (hdmi_cec transport)"
         }
       }
@@ -74,27 +74,80 @@
   },
   "entity": {
     "select": {
-      "eq": { "name": "EQ", "state": { "MUSIC": "Music", "MOVIE": "Movie", "NEWS": "News", "SPORT": "Sport", "NIGHT": "Night", "GAME": "Game", "AI EQ": "AI EQ" } },
-      "surround": { "name": "Surround", "state": { "PURE": "Pure", "PRO": "Pro", "OFF": "Off" } },
-      "input": { "name": "Input", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN", "OPTICAL": "Optical", "AUX": "AUX", "USB": "USB", "BT": "Bluetooth" } }
+      "eq": {
+        "name": "EQ",
+        "state": {
+          "MUSIC": "Music",
+          "MOVIE": "Movie",
+          "NEWS": "News",
+          "SPORT": "Sport",
+          "NIGHT": "Night",
+          "GAME": "Game",
+          "AI EQ": "AI EQ"
+        }
+      },
+      "surround": {
+        "name": "Surround",
+        "state": {
+          "PURE": "Pure",
+          "PRO": "Pro",
+          "OFF": "Off"
+        }
+      },
+      "input": {
+        "name": "Input",
+        "state": {
+          "ARC": "ARC (TV/eARC)",
+          "HDMI": "HDMI IN",
+          "OPTICAL": "Optical",
+          "AUX": "AUX",
+          "USB": "USB",
+          "BT": "Bluetooth"
+        }
+      }
     },
     "number": {
-      "bass": { "name": "Bass" },
-      "treble": { "name": "Treble" },
-      "dimmer": { "name": "Display brightness" },
-      "volume": { "name": "Volume" }
+      "bass": {
+        "name": "Bass"
+      },
+      "treble": {
+        "name": "Treble"
+      },
+      "dimmer": {
+        "name": "Display brightness"
+      },
+      "volume": {
+        "name": "Volume"
+      }
     },
     "sensor": {
-      "support_features": { "name": "EZPlay support features" },
-      "active_source": { "name": "Active source" }
+      "support_features": {
+        "name": "EZPlay support features"
+      },
+      "active_source": {
+        "name": "Active source"
+      }
     },
     "button": {
-      "volume_up": { "name": "Volume up" },
-      "volume_down": { "name": "Volume down" }
+      "volume_up": {
+        "name": "Volume up"
+      },
+      "volume_down": {
+        "name": "Volume down"
+      }
     },
     "switch": {
-      "power": { "name": "Power" },
-      "mute": { "name": "Mute" }
+      "power": {
+        "name": "Power"
+      },
+      "mute": {
+        "name": "Mute"
+      }
+    },
+    "media_player": {
+      "soundbar": {
+        "name": "Soundbar"
+      }
     }
   },
   "services": {
@@ -102,20 +155,44 @@
       "name": "Send raw CEC frame",
       "description": "Sends an arbitrary CEC frame through the integration transport. Guard rails: destructive subopcodes (A6/B0/B2) and a bare A2 are rejected.",
       "fields": {
-        "entity_id": { "name": "Entity", "description": "Any soundbar entity." },
-        "source": { "name": "Source address", "description": "0 = TV, 5 = soundbar, 14 = gateway." },
-        "destination": { "name": "Destination address", "description": "5 = soundbar, 15 = broadcast." },
-        "data": { "name": "Data", "description": "Opcode + payload bytes, 0x or decimal (e.g. 0xA0,0xA8,0x82,0x00,0xA3,0x05)." }
+        "entity_id": {
+          "name": "Entity",
+          "description": "Any soundbar entity."
+        },
+        "source": {
+          "name": "Source address",
+          "description": "0 = TV, 5 = soundbar, 14 = gateway."
+        },
+        "destination": {
+          "name": "Destination address",
+          "description": "5 = soundbar, 15 = broadcast."
+        },
+        "data": {
+          "name": "Data",
+          "description": "Opcode + payload bytes, 0x or decimal (e.g. 0xA0,0xA8,0x82,0x00,0xA3,0x05)."
+        }
       }
     },
-    "volume_up": { "name": "Volume up", "description": "Volume up via CEC UCP." },
-    "volume_down": { "name": "Volume down", "description": "Volume down via CEC UCP." },
-    "mute_toggle": { "name": "Toggle mute", "description": "Mute toggle via CEC UCP." },
+    "volume_up": {
+      "name": "Volume up",
+      "description": "Volume up via CEC UCP."
+    },
+    "volume_down": {
+      "name": "Volume down",
+      "description": "Volume down via CEC UCP."
+    },
+    "mute_toggle": {
+      "name": "Toggle mute",
+      "description": "Mute toggle via CEC UCP."
+    },
     "source_pressed": {
       "name": "IR source pressed",
       "description": "Tracks an IR remote SOURCE press — cycles the input ARC → HDMI → Optical → AUX → USB → BT. CEC cannot see switches to Optical/AUX/USB/BT (the soundbar emits no frames for them), so call this from an automation triggered by your IR receiver to keep the input state in sync.",
       "fields": {
-        "entity_id": { "name": "Entity", "description": "Any soundbar entity." }
+        "entity_id": {
+          "name": "Entity",
+          "description": "Any soundbar entity."
+        }
       }
     }
   }

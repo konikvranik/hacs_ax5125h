@@ -42,15 +42,13 @@ def make_client(transport, **kw):
 
 
 def default_script(src, dst, payload):
-    """Plně responsivní soundbar: on, A1, 0x91, 0x7A."""
-    if payload[0] == 0x8F:
-        return (SB, 0, [0x90, 0x00])                       # on
+    """Plně responsivní soundbar: on (unmute 0x7A), A1, 0x91."""
     if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
         return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA1, 1, 1, 0x80, 0x82, 2])
     if ez.ezplay_sub(payload) == ez.SUB_GIVE_SUPPORT_FEATURES:
         return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0x91, 0x9F, 0x06])
     if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
-        return (SB, 0, [0x7A, 0x25])                       # volume 37
+        return (SB, 0, [0x7A, 0x25])                       # unmute, vol 37
     if ez.ezplay_sub(payload) == ez.SUB_SET_ITEM_VALUE:
         return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA4,
                         payload[5], payload[6]])           # ack echo
@@ -73,10 +71,12 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(data["mute"])
         self.assertEqual(data["support_mask"], 0x9F)
         self.assertEqual(data["support_items"], 6)
-        # pořadí: 0x8F jde první (standardní CEC, session nepotřebuje),
-        # spoof (0->F vendor ID) musí předcházet prvnímu EZPlay dotazu
+        # pořadí: 0x71 jde první (power/volume/mute z mute bitu; 0x8F se od
+        # 0.5.0 neposílá — hlásí ON vždy i v deep standby), spoof musí
+        # předcházet prvnímu EZPlay dotazu
         opcodes = [p[2][0] for p in t.sent]
-        self.assertEqual(opcodes[0], 0x8F)
+        self.assertEqual(opcodes[0], ez.OP_GIVE_AUDIO_STATUS)
+        self.assertNotIn(0x8F, opcodes)
         self.assertIn(0xA0, opcodes)
         # jen Hisense spoof (Roku spoof z RTVR handshake má OUI 8A:C7:2E)
         spoofs = [p for p in t.sent
@@ -90,108 +90,54 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(t.sent.index(spoofs[0]), first_ezplay)
 
-    async def test_refresh_real_standby_probe_once(self):
-        """Skutečný standby (vendor vrstva mlčí): probe 0x71 + A0 jednou,
-        žádné support query, stav zůstává standby."""
-        def standby(src, dst, payload):
-            if payload[0] == 0x8F:
-                return (SB, 0, [0x90, 0x01])
+    async def test_refresh_deep_standby_no_vendor_traffic(self):
+        """Deep standby (LED zhaslá): 0x71 hlásí mute bit -> power standby
+        a žádný vendor provoz (A0/support/RTVR se neposílají)."""
+        def deep_standby(src, dst, payload):
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 0x80 | 27])          # muted, vol 27
             return None
 
-        t = FakeTransport(standby)
+        t = FakeTransport(deep_standby)
         c = make_client(t)
         await c.async_start()
         data = await c.async_refresh()
         self.assertEqual(data["power"], "standby")
-        self.assertEqual(data["cec_power"], "standby")
+        self.assertTrue(data["mute"])
+        self.assertEqual(data["volume"], 27)
+        self.assertNotIn("eq", data)
         sent_ops = [p[2][0] for p in t.sent]
-        self.assertIn(ez.OP_GIVE_AUDIO_STATUS, sent_ops)   # liveness probe
-        a0s = [
-            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
-        ]
-        self.assertEqual(len(a0s), 1)                      # probe bez retry
-        support = [
-            p for p in t.sent
-            if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_SUPPORT_FEATURES
-        ]
-        self.assertEqual(support, [])
+        self.assertEqual(sent_ops, [ez.OP_GIVE_AUDIO_STATUS])
+        self.assertNotIn(0x8F, sent_ops)
+        spoofs = [p for p in t.sent if p[2][:1] == [0x87]]
+        self.assertEqual(spoofs, [])
 
-    async def test_refresh_fake_standby_on_opt(self):
-        """"Fake" standby na ne-CEC vstupu: 0x8F hlásí standby, ale soundbar
-        hraje (odpovídá 0x7A s unmute + volume > 0) -> power on."""
-        def opt_playing(src, dst, payload):
-            if payload[0] == 0x8F:
-                return (SB, 0, [0x90, 0x01])
+    async def test_refresh_unmute_vendor_dead_stays_on(self):
+        """0x71 unmute (bar žije), ale vendor vrstva mlčí — nefailujeme:
+        power on + platný audio stav, jen bez EQ parametrů."""
+        def no_vendor(src, dst, payload):
             if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
                 return (SB, 0, [0x7A, 25])                 # unmute, vol 25
-            if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
-                return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA1, 1, 1, 0x80, 0x82, 2])
             return None
 
-        t = FakeTransport(opt_playing)
+        t = FakeTransport(no_vendor)
         c = make_client(t)
         await c.async_start()
         data = await c.async_refresh()
         self.assertEqual(data["power"], "on")
-        self.assertEqual(data["cec_power"], "standby")
         self.assertEqual(data["volume"], 25)
         self.assertFalse(data["mute"])
-        self.assertEqual(data["eq"], 1)
-        # vendor probe se nespustil -> A0 jen jako param dotaz, jednou
-        a0s = [
-            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
-        ]
-        self.assertEqual(len(a0s), 1)
-
-    async def test_refresh_ambiguous_audio_vendor_alive(self):
-        """Standby + muted/volume 0 (nejednoznačné) -> rozhodne EZPlay A1;
-        odpovídá -> hraje, parametry se aplikují bez druhého A0."""
-        def script(src, dst, payload):
-            if payload[0] == 0x8F:
-                return (SB, 0, [0x90, 0x01])
-            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
-                return (SB, 0, [0x7A, 0x80])               # muted, volume 0
-            if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
-                return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA1, 3, 2, 0x82, 0x80, 1])
-            return None
-
-        t = FakeTransport(script)
-        c = make_client(t)
-        await c.async_start()
-        data = await c.async_refresh()
-        self.assertEqual(data["power"], "on")
-        self.assertEqual(data["eq"], 3)
-        self.assertTrue(data["mute"])
-        a0s = [
-            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
-        ]
-        self.assertEqual(len(a0s), 1)
-
-    async def test_refresh_ambiguous_audio_vendor_dead_stays_standby(self):
-        """Standby + mute hlášení a mlčící vendor vrstva = skutečný standby."""
-        def script(src, dst, payload):
-            if payload[0] == 0x8F:
-                return (SB, 0, [0x90, 0x01])
-            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
-                return (SB, 0, [0x7A, 0x80])
-            return None
-
-        t = FakeTransport(script)
-        c = make_client(t)
-        await c.async_start()
-        data = await c.async_refresh()
-        self.assertEqual(data["power"], "standby")
-        self.assertEqual(data["cec_power"], "standby")
         self.assertNotIn("eq", data)
 
     async def test_refresh_timeout_raises(self):
+        """0x71 mlčí v KAŽDÉM stavu (i deep standby odpovídá) — ticho =
+        mrtvý transport -> EzplayTimeout."""
         t = FakeTransport(None)
         c = make_client(t)
         with self.assertRaises(EzplayTimeout):
             await c.async_refresh()
-        # retry: alespoň 2 all-params pokusy + 2 spoofy
-        spoofs = [p for p in t.sent if p[2][:1] == [0x87]]
-        self.assertGreaterEqual(len(spoofs), 2)
+        sent_ops = [p[2][0] for p in t.sent]
+        self.assertEqual(sent_ops, [ez.OP_GIVE_AUDIO_STATUS])
 
 
 class TestWrites(unittest.IsolatedAsyncioTestCase):
@@ -301,15 +247,17 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
     async def test_audio_status_push(self):
         """Report Audio Status (50:7A) — i nevyžádaný (IR ovladač) —
-        aktualizuje mute i volume."""
+        aktualizuje mute, volume i power (mute bit = stavový signál)."""
         t = FakeTransport()
         c = make_client(t)
         c._handle_frame(SB, 0, [0x7A, 0x80 | 42])
         self.assertTrue(c.data["mute"])
         self.assertEqual(c.data["volume"], 42)
+        self.assertEqual(c.data["power"], "standby")
         c._handle_frame(SB, 0, [0x7A, 37])
         self.assertFalse(c.data["mute"])
         self.assertEqual(c.data["volume"], 37)
+        self.assertEqual(c.data["power"], "on")
 
     async def test_a5_push_items(self):
         t = FakeTransport()
@@ -435,13 +383,31 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t.sent[1], (0, SB, [0x45, 0x41]))
 
     async def test_power_on(self):
-        t = FakeTransport()
+        """Power ON = Set Stream Path broadcast na HDMI IN port (živě ověřeno:
+        jediný funkční CEC wake, probudí i z deep standby) + verify loop přes
+        mute bit (po probuzení unmute -> break)."""
+        def awake(src, dst, payload):
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 25])                 # unmute po probuzení
+            return None
+
+        t = FakeTransport(awake)
         c = make_client(t)
+        await c.async_start()
         await c.async_power_on()
-        # sam request + ucp power on
-        self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
-        self.assertEqual(t.sent[1], (0, SB, [0x44, 0x6D]))
-        self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
+        self.assertEqual(t.sent[0], (0, 0xF, [0x86, 0x31, 0x00]))
+        self.assertEqual(c.data["power"], "on")
+        self.assertFalse(c.data["mute"])
+        self.assertFalse(any(p[2][0] in (0x70, 0x44, 0x45) for p in t.sent))
+
+    async def test_power_on_rx_less(self):
+        """rx-less transport: jen SetStreamPath frame, žádný verify loop."""
+        t = FakeTransport(None)
+        t.supports_rx = False
+        c = make_client(t)
+        await c.async_start()
+        await c.async_power_on()
+        self.assertEqual(t.sent, [(0, 0xF, [0x86, 0x31, 0x00])])
         self.assertEqual(c.data["power"], "on")
 
     async def test_source_pressed_cycles_inputs(self):
