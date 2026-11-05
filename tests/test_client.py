@@ -135,6 +135,12 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c.data["last_activity"], 0.0)
         c._handle_frame(SB, 15, [0x84, 0x30, 0x00, 0x05])
         self.assertEqual(c.data["last_activity"], 0.0)
+        # TV ARC handshake smyčka (7E:01 každých ~5 s při SAM-on, #16) —
+        # také šum, jinak by aktivní mód nikdy neuvolnil
+        c._handle_frame(SB, 0, [0x7E, 0x01])
+        self.assertEqual(c.data["last_activity"], 0.0)
+        c._handle_frame(SB, 0, [0xA3, 0x21, 0x07])
+        self.assertEqual(c.data["last_activity"], 0.0)
 
     async def test_event_power_signals(self):
         """Power = čistě eventový model: 90:01 → standby, spontánní 7A → on,
@@ -343,10 +349,11 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
                 and tuple(p[2][1:4]) == (0x8A, 0xC7, 0x2E)]
         self.assertIn(0x10, subs)
         self.assertIn(0x12, subs)
-        # zápis OFF (opt1=2) → ReportState potvrdí
-        ok = await c.rtvr_set_surr(2)
-        self.assertTrue(ok)
-        self.assertEqual(c.data["surr"], 2)
+        # zápis surroundu je od 0.7.2 VYPNUT (neznámá sémantika option
+        # bajtů korumpuje zařízení, #17) — read-only RTVR
+        from tests.test_client import EzplayError as _E
+        with self.assertRaises(EzplayError):
+            await c.rtvr_set_surr(2)
 
     async def test_rtvr_no_response_suppressed(self):
         """Bez RTVR odpovědi: handshake selže a 5 min se neopakuje."""

@@ -45,6 +45,12 @@ _ACTIVITY_NOISE = frozenset({
     0x84,                        # Report Physical Address (odpověď na 0x83)
     ez.OP_DEVICE_VENDOR_ID,      # 0x87 — odpověď na 0x8C
     0x47,                        # Set OSD Name (odpověď na 0x46)
+    0x7E,                        # System Audio Mode Status hlášení TV (živě:
+                                 # TV ARC handshake smyčka 7E:01 každých ~5 s,
+                                 # dokud bar drží SAM-on — #16; flood by držel
+                                 # aktivní mód a bar by nezhluboka spal)
+    0xA3,                        # Report Short Audio Descriptor (ARC vyjednávání)
+    0x00,                        # Feature Abort (reakce na CDC pokusy TV)
 })
 
 
@@ -581,39 +587,19 @@ class EzplayClient:
         return surr if surr in (0, 1, 2) else None
 
     async def rtvr_set_surr(self, mode: int) -> bool:
-        """Zápis surround módu přes RTVR SetState (0=PURE, 1=PRO, 2=OFF).
+        """Zápis surround módu přes RTVR SetState — **VYPNUTO (0.7.2)**.
 
-        Vrací True, když potvrzený ReportState nese zapsanou hodnotu.
+        SetState píše option bajty fsid 0x5D, jejichž sémantika není známá —
+        živě ověřeno (#17): zápis s F-nibly i „opravný" zápis zdravých hodnot
+        změnily stav, který se na zařízení projevil jako neočekávaný eARC
+        mód (TV ho nepodporuje). Dokud nebude option mapa bezpečně zmapována
+        z menu/fw, zápis odmítáme. Čtení (rtvr_poll) zůstává — je neškodné.
         """
-        if mode not in (0, 1, 2):
-            raise ValueError(f"neznámý surround mód: {mode}")
-        if not self.rx_capable:
-            return False
-        now = time.monotonic()
-        if not self._rtvr_ok:
-            if now - self._rtvr_last_attempt < RTVR_RETRY_MIN:
-                return False
-            self._rtvr_last_attempt = now
-            if not await self.rtvr_handshake():
-                return False
-            self._rtvr_ok = True
-        r = await self._request(
-            self._tv_addr, self._sb_addr,
-            [ez.OP_EZPLAY, *ROKU_OUI, RTVR_SET_STATE, RTVR_FSID,
-             0xF0 | mode, 0xFF, 0xFF],
-            lambda p: (self._is_rtvr_frame(p, RTVR_REPORT_STATE)
-                       and len(p) >= 9),
-            self.t_rtvr,
+        raise EzplayError(
+            "RTVR SetState zápis je vypnut: option bajty fsid 0x5D mají "
+            "neznámou sémantiku a slepé zápisy je korumpují (eARC stav #17). "
+            "Surround měň IR ovladačem — čtení přes RTVR poll funguje dál."
         )
-        if r is None:
-            self._rtvr_ok = False
-            return False
-        surr = r[6] & 0xF   # opt1 = low nible prvního option bajtu
-        if surr in (0, 1, 2):
-            self.data["surr"] = surr
-            self._notify()
-        return surr == mode
-
     async def async_source_pressed(self) -> str:
         """IR SOURCE stisk — posune vstupní cyklus (optimistický tracking).
 
