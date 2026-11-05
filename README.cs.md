@@ -132,11 +132,13 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   Vedlejší efekt: bar se probudí na vstupu HDMI IN.
 - **Stav napájení**: CEC `Report Power Status` (0x8F) je na tomto zařízení
   **k ničemu** — hlásí `On` vždy. Jediný stavový signál je **mute bit** v
-  `Report Audio Status` (0x71→0x7A): hluboký standby hlásí `mute=1`,
-  zapnutý/neztlumený `mute=0`. Limitace: ztlumený (mute) rozsvícený bar ukáže
-  *standby*; pár minut *měkkého* standby těsně po vypnutí (tmavý displej,
-  červená LED svítí, CEC hlásí unmute) ještě ukazuje *on*, než dojde na
-  hluboký standby. Media player stav to zrcadlí.
+  `Report Audio Status` (0x71→0x7A), vyhodnocovaný kontextově: spontánní
+  `7A` push (IR/HA mute či volume) znamená, že bar žije → *on*, i když je
+  ztlumený; mute přechod viděný **jen** pollem (hluboký standby neprodukuje
+  žádné rámce) → *standby*; poll-unmute v soft-standby okně těsně po HA
+  vypnutí zůstává *standby* (tmavá měkká fáze hlásí unmute). Takže
+  rozsvícený+ztlumený soundbar správně zůstává *on* a HA se překlopí na
+  *standby*, až červená LED reálně zhasne. Media player stav to zrcadlí.
 
 ## Omezení / poznámky
 

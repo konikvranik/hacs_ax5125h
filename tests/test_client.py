@@ -246,17 +246,61 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c.data["active_source"], "3.1.0.0")
 
     async def test_audio_status_push(self):
-        """Report Audio Status (50:7A) — i nevyžádaný (IR ovladač) —
-        aktualizuje mute, volume i power (mute bit = stavový signál)."""
+        """Spontánní 0x7A push (IR/HA mute/volume) = bar živý → vždy on,
+        i když je push mute=1 (ztlumený neznamená vypnutý!)."""
         t = FakeTransport()
         c = make_client(t)
-        c._handle_frame(SB, 0, [0x7A, 0x80 | 42])
+        c.data["power"] = "on"
+        c._handle_frame(SB, 0, [0x7A, 0x80 | 42])      # IR mute
         self.assertTrue(c.data["mute"])
         self.assertEqual(c.data["volume"], 42)
-        self.assertEqual(c.data["power"], "standby")
-        c._handle_frame(SB, 0, [0x7A, 37])
+        self.assertEqual(c.data["power"], "on")
+        c._handle_frame(SB, 0, [0x7A, 37])              # IR unmute
         self.assertFalse(c.data["mute"])
-        self.assertEqual(c.data["volume"], 37)
+        self.assertEqual(c.data["power"], "on")
+
+    async def test_poll_mute_transition_standby(self):
+        """Poll vidí mute 0→1 bez push signálu = přechod do hlubokého
+        standby (ten neprodukuje žádný rámec) → power standby."""
+        t = FakeTransport(lambda s, d, p: (SB, 0, [0x7A, 0x80 | 27])
+                          if p[0] == ez.OP_GIVE_AUDIO_STATUS else None)
+        c = make_client(t)
+        await c.async_start()
+        c.data["mute"] = False
+        c.data["power"] = "on"
+        data = await c.async_refresh()
+        self.assertTrue(data["mute"])
+        self.assertEqual(data["power"], "standby")
+
+    async def test_poll_steady_mute_after_push_stays_on(self):
+        """Trvalý mute po pushi (on + ztlumený): poll mute=1 bez přechodu
+        power nepřeklápí — zůstává on a vendor refresh proběhne."""
+        def muted_alive(src, dst, payload):
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 0x80 | 30])       # poll: stále mute=1
+            return default_script(src, dst, payload)
+
+        t = FakeTransport(muted_alive)
+        c = make_client(t)
+        await c.async_start()
+        c._handle_frame(SB, 0, [0x7A, 0x80 | 30])       # push: mute, on
+        self.assertEqual(c.data["power"], "on")
+        data = await c.async_refresh()                  # poll: stále mute=1
+        self.assertTrue(data["mute"])
+        self.assertEqual(data["power"], "on")
+        self.assertEqual(data["eq"], 1)                 # vendor refresh běžel
+
+    async def test_power_off_suppresses_soft_standby_unmute(self):
+        """Po HA power_off hlásí měkký standby pár minut unmute — poll
+        nesmí překlopit zpět na on; spontánní push potlačení ukončí."""
+        t = FakeTransport(lambda s, d, p: (SB, 0, [0x7A, 30])
+                          if p[0] == ez.OP_GIVE_AUDIO_STATUS else None)
+        c = make_client(t)
+        await c.async_start()
+        await c.async_power_off()
+        data = await c.async_refresh()                  # soft standby: unmute
+        self.assertEqual(data["power"], "standby")      # potlačeno
+        c._handle_frame(SB, 0, [0x7A, 25])              # spontánní push = živý
         self.assertEqual(c.data["power"], "on")
 
     async def test_a5_push_items(self):

@@ -135,11 +135,14 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   Side effect: the bar wakes on its HDMI IN input.
 - **Power state**: the CEC `Report Power Status` (0x8F) is **useless on this
   device** — it reports `On` in every state. The only state signal is the
-  **mute bit** of `Report Audio Status` (0x71→0x7A): deep standby reports
-  `mute=1`, an on/unmuted bar reports `mute=0`. Limitations: a muted-but-on
-  bar shows *standby*, and the minutes of *soft* standby right after power-off
-  (dark display, red LED still lit, CEC unmuted) still show *on* until the
-  deep-standby transition. The media_player state mirrors this.
+  **mute bit** of `Report Audio Status` (0x71→0x7A), evaluated in context:
+  a spontaneous `7A` push (IR/HA mute or volume) means the bar is alive →
+  *on* even when muted; a mute flip seen **only** by the poll (deep standby
+  emits no frames) → *standby*; a poll-unmute inside the soft-standby window
+  right after a HA power-off stays *standby* (the dark soft-standby phase
+  still reports unmute). So: an on-but-muted soundbar correctly stays *on*,
+  and HA flips to *standby* when the red LED actually goes off. The
+  media_player state mirrors this.
 
 ## Limitations / notes
 

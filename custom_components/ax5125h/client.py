@@ -35,6 +35,12 @@ RTVR_SURR_OFF = 2
 #: Po neúspěšném RTVR handshake opakovat nejdřív za (s):
 RTVR_RETRY_MIN = 300.0
 
+#: Měkký standby po async_power_off trvá pár minut (tmavý displej, LED
+#: svítí, CEC hlásí unmute) — během tohoto okna poll nesmí překlopit stav
+#: zpět na on; skončí dřív, jakmile se objeví mute=1 (deep) nebo spontánní
+#: push (bar zase žije).
+SOFT_STANDBY_WINDOW = 360.0
+
 
 class EzplayError(Exception):
     """Základní chyba protokolu."""
@@ -163,10 +169,13 @@ class EzplayClient:
         elif opcode == ez.OP_REPORT_AUDIO_STATUS and (src == self._sb_addr or src == 5):
             audio = ez.parse_audio_status(payload)
             if audio is not None:
-                self.data["mute"], self.data["volume"] = audio
-                # mute bit = jediný CEC stavový signál (deep standby hlásí
-                # mute=1) — power drží v souladu i při push (IR mute apod.)
-                self.data["power"] = "standby" if audio[0] else "on"
+                self._apply_audio(
+                    audio,
+                    is_reply=any(
+                        (not p.future.done()) and p.predicate(payload)
+                        for p in self._pending
+                    ),
+                )
         elif opcode == ez.OP_ACTIVE_SOURCE and dst in (0xF, self._tv_addr):
             pa = ez.parse_physical_address(payload)
             if pa:
@@ -203,6 +212,37 @@ class EzplayClient:
                       ez.OP_SET_SYSTEM_AUDIO_MODE,
                       ez.OP_USER_CONTROL_PRESSED):
             self._notify()
+
+    def _apply_audio(self, audio: tuple[bool, int], is_reply: bool) -> None:
+        """Aplikuje mute/volume z 0x7A a odvodí power (mute-bit model).
+
+        Mute bit je jediný CEC stavový signál AX5125H, ale sam o sobě
+        nerozliší „deep standby" od „on + ztlumený IR/HA mute". Rozlišujeme
+        kontextem (0.5.1):
+          - unmute → on; výjimka: okno SOFT_STANDBY_WINDOW po async_power_off
+            (měkký standby hlásí unmute) — konec dřív při spontánním pushi
+          - spontánní push (není odpověď na náš poll) = IR/HA akce → bar
+            žije → vždy on (ztlumený push nemá vypínat stav!)
+          - mute=1 z pollu platí standby jen při 0→1 přechodu (přechod do
+            hlubokého standby neprodukuje žádný rámec); trvalý mute po
+            pushi zůstává on
+        """
+        prev_mute = self.data.get("mute")
+        self.data["mute"], self.data["volume"] = audio
+        if not is_reply:
+            # spontánní push: bar reaguje na IR/HA → živý = on; zároveň
+            # ukončí případné potlačení po power_off
+            self.data["power_suppress_until"] = 0.0
+            self.data["power"] = "on"
+        elif not audio[0]:
+            if time.time() > self.data.get("power_suppress_until", 0.0):
+                self.data["power"] = "on"
+        elif prev_mute is not True:
+            # poll viděl mute bez push signálu (0→1 přechod, nebo první
+            # poll po startu s neznámým předchozím stavem) = hluboký standby
+            self.data["power"] = "standby"
+            self.data["power_suppress_until"] = 0.0
+        # mute=1 a už dřív mute (trvalý mute po pushi) → power necháme
 
     async def _send_give_audio_status(self) -> None:
         try:
@@ -287,12 +327,11 @@ class EzplayClient:
 
         Power model (živě 2026-11-05, docs research-log #12): CEC 0x8F hlásí
         ON vždy (soft i deep standby) — nepoužitelné. Jediný CEC rozlišovač
-        stavu AX5125H je mute bit v 0x71 Report Audio Status:
-          - mute=1 → deep standby (červená LED zhaslá, amp off)
-          - mute=0 → on (rozsvícený, i na ne-CEC vstupech OPT/AUX/USB/BT)
-        Limitace (zdokumentovaná v README): IR mute při přehrávání ukáže
-        standby; pár minut soft standby po vypnutí (displej tmavý, LED svítí,
-        CEC hlásí unmute) ukáže on, než LED zhasne.
+        stavu AX5125H je mute bit v 0x71 Report Audio Status, vyhodnocovaný
+        kontextově v _apply_audio (přechody + push detekce): spontánní push
+        = on (bar živý, i ztlumený), poll mute 0→1 přechod = deep standby,
+        trvalý mute po pushi = zůstává on, unmute v soft-standby okně po
+        power_off = zůstává standby.
         """
         if not self.rx_capable:
             # rx-less transport: žádné dotazy (odpověď by stejně nedošla);
@@ -311,10 +350,10 @@ class EzplayClient:
             raise EzplayTimeout(
                 "soundbar neodpovídá na 0x71 (CEC výpadek?)"
             )
-        self.data["mute"], self.data["volume"] = parsed
-        self.data["power"] = "standby" if parsed[0] else "on"
+        self._apply_audio(parsed, is_reply=True)
 
-        if parsed[0]:
+        if parsed[0] and self.data.get("power") != "on":
+            # deep standby (mute přechod bez push) — vendor provoz šetříme
             self.data["last_seen"] = time.time()
             return self.data
 
@@ -440,6 +479,7 @@ class EzplayClient:
         """
         await self._send(self._tv_addr, 0xF, ez.set_stream_path_frame(self._hdmi_pa))
         self.data["power"] = "on"
+        self.data["power_suppress_until"] = 0.0
         self._notify()
         if not self.rx_capable:
             return
@@ -457,9 +497,15 @@ class EzplayClient:
         self._notify()
 
     async def async_power_off(self) -> None:
-        """Převede soundbar / receiver do standby (CEC 0x36 Standby)."""
+        """Převede soundbar / receiver do standby (CEC 0x36 Standby).
+
+        Měkký standby fáze (pár minut, CEC hlásí unmute) nesmí poll překlopit
+        zpět na on — nastavíme potlačení SOFT_STANDBY_WINDOW; skončí dřív při
+        mute=1 (deep) nebo spontánním pushi (bar zase žije).
+        """
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
         self.data["power"] = "standby"
+        self.data["power_suppress_until"] = time.time() + SOFT_STANDBY_WINDOW
         self._notify()
 
     async def async_set_dimmer(self, menu: int) -> None:
