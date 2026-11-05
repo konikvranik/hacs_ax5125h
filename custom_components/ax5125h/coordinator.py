@@ -64,6 +64,24 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
         except (EzplayError, TransportError) as exc:
             raise UpdateFailed(str(exc)) from exc
 
+    async def async_power_on(self) -> None:
+        """Zapne soundbar přes transport a případnou power entity."""
+        if self._power_entity and not self.client.rx_capable:
+            await self.hass.services.async_call(
+                "switch", "turn_on", {"entity_id": self._power_entity}
+            )
+        await self.client.async_power_on()
+        self.async_update_listeners()
+
+    async def async_power_off(self) -> None:
+        """Vypne soundbar přes transport a případnou power entity."""
+        if self._power_entity and not self.client.rx_capable:
+            await self.hass.services.async_call(
+                "switch", "turn_off", {"entity_id": self._power_entity}
+            )
+        await self.client.async_power_off()
+        self.async_update_listeners()
+
     def _refresh_power_from_entity(self) -> None:
         """rx-less transport: power z hdmi_cec entity (switch.hdmi_N)."""
         if not self._power_entity:

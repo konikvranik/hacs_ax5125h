@@ -84,14 +84,16 @@
       "treble": { "name": "Treble" }
     },
     "sensor": {
-      "power": { "name": "Power", "state": { "on": "On", "standby": "Standby", "turning_on": "Turning on", "turning_off": "Turning off", "unknown": "Unknown" } },
       "volume": { "name": "Volume" },
       "support_features": { "name": "EZPlay support features" },
       "active_source": { "name": "Active source" }
     },
     "button": {
       "volume_up": { "name": "Volume up" },
-      "volume_down": { "name": "Volume down" },
+      "volume_down": { "name": "Volume down" }
+    },
+    "switch": {
+      "power": { "name": "Power" },
       "mute": { "name": "Mute" }
     }
   },

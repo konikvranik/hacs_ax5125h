@@ -49,6 +49,7 @@ class TestFrameBuilders(unittest.TestCase):
     def test_input_frames(self):
         self.assertEqual(ez.sam_request_frame(), [0x70, 0x00, 0x00])
         self.assertEqual(ez.active_source_frame((0x31, 0x00)), [0x82, 0x31, 0x00])
+        self.assertEqual(ez.standby_frame(), [0x36])
 
 
 class TestParsing(unittest.TestCase):

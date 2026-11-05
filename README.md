@@ -18,9 +18,10 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | Bass / Treble | number | −5 … +5 | ✅ |
 | Surround | select | PURE / PRO / OFF | ✅ |
 | Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
-| Power | sensor | on / standby / turning on/off (CEC 0x8F→0x90) | ✅ |
-| Volume + mute | sensor | 0–100 % (CEC 0x71→0x7D) | ❓ best-effort — our unit ignores 0x71, sensor stays unknown (buttons still work) |
-| Volume +/−, Mute | button | CEC UCP (0x44/0x45) | ✅ |
+| Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
+| Volume | sensor | 0–100 % (CEC 0x71→0x7D, auto-SAM request activation + auto-query on UCP) | ✅ |
+| Mute | switch | mute state (read via 0x7D + UCP 0x43 toggling) | ✅ |
+| Volume +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Input → ARC** | select | System Audio Mode Request as the TV (`0;5;0x70,0x00,0x00`) | ✅ |
 | **Input → HDMI IN** | select | Active Source as the gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
 | Push changes from menu/remote | — | EZPlay `A5` inform → instant entity updates | ✅ |

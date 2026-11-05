@@ -1,11 +1,11 @@
-"""Sensory: napájení, hlasitost + mute, diagnostika (support features,
-active source)."""
+"""Sensory: hlasitost, diagnostika (support features, active source)."""
 
 from __future__ import annotations
 
 import logging
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -23,8 +23,6 @@ from .entity import AxEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-POWER_OPTIONS = ["on", "standby", "turning_on", "turning_off", "unknown"]
-
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -32,7 +30,6 @@ async def async_setup_entry(
     coordinator: SoundbarCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
         [
-            PowerSensor(coordinator),
             VolumeSensor(coordinator),
             SupportFeaturesSensor(coordinator),
             ActiveSourceSensor(coordinator),
@@ -40,22 +37,18 @@ async def async_setup_entry(
     )
 
 
-class PowerSensor(AxEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = POWER_OPTIONS
-    _attr_translation_key = "power"
-    _attr_icon = "mdi:power"
-
-    @property
-    def native_value(self) -> StateType:
-        return self.sb_data.get("power")
-
-
-class VolumeSensor(AxEntity, SensorEntity):
+class VolumeSensor(AxEntity, RestoreSensor):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "volume"
     _attr_icon = "mdi:volume-high"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.sb_data.get("volume") is None:
+            last_state = await self.async_get_last_sensor_data()
+            if last_state and last_state.native_value is not None:
+                self.coordinator.data.setdefault("volume", int(last_state.native_value))
 
     @property
     def native_value(self) -> StateType:

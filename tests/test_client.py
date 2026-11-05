@@ -208,12 +208,48 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x01, 0x05])
         self.assertEqual(c.data["eq"], 5)
 
+    async def test_ucp_push_updates_volume(self):
+        t = FakeTransport()
+        c = make_client(t)
+        c.data["volume"] = 20
+        # TV posílá UCP Volume Up na soundbar (0 -> 5: [0x44, 0x41])
+        c._handle_frame(0, SB, [0x44, 0x41])
+        self.assertEqual(c.data["volume"], 21)
+        # TV posílá UCP Volume Down
+        c._handle_frame(0, SB, [0x44, 0x42])
+        self.assertEqual(c.data["volume"], 20)
+
     async def test_volume_key(self):
         t = FakeTransport()
         c = make_client(t)
         await c.async_volume_key(ez.UCP_VOLUME_UP)
         self.assertEqual(t.sent[0], (0, SB, [0x44, 0x41]))
         self.assertEqual(t.sent[1], (0, SB, [0x45, 0x41]))
+
+    async def test_power_on(self):
+        t = FakeTransport()
+        c = make_client(t)
+        await c.async_power_on()
+        # sam request + ucp power on
+        self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
+        self.assertEqual(t.sent[1], (0, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
+        self.assertEqual(c.data["power"], "on")
+
+    async def test_power_off(self):
+        t = FakeTransport()
+        c = make_client(t)
+        await c.async_power_off()
+        self.assertEqual(t.sent[0], (0, SB, [0x36]))
+        self.assertEqual(c.data["power"], "standby")
+
+    async def test_set_mute(self):
+        t = FakeTransport()
+        c = make_client(t)
+        await c.async_set_mute(True)
+        self.assertTrue(c.data["mute"])
+        self.assertEqual(t.sent[0], (0, SB, [0x44, 0x43]))
+        self.assertEqual(t.sent[1], (0, SB, [0x45, 0x43]))
 
 
 class TestSafety(unittest.IsolatedAsyncioTestCase):

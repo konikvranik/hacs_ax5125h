@@ -79,8 +79,8 @@ async def test_real_mqtt_rx_chain_updates_entities(
     # --- rx: Report Power Status [On] ---
     async_fire_mqtt_message(hass, "cec_gateway/rx", RX_POWER_ON)
     await hass.async_block_till_done()
-    sensors = [s.state for s in hass.states.async_all("sensor")]
-    assert "on" in sensors, sensors
+    switches = [s.state for s in hass.states.async_all("switch")]
+    assert "on" in switches, switches
 
     # --- tx: service volume_up → publish do cec_gateway/send ---
     eq_entity_id = next(

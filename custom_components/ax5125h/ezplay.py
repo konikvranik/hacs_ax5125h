@@ -25,6 +25,7 @@ OP_SYSTEM_AUDIO_MODE_REQUEST = 0x70
 OP_ACTIVE_SOURCE = 0x82
 OP_GIVE_DEVICE_POWER_STATUS = 0x8F
 OP_REPORT_POWER_STATUS = 0x90
+OP_STANDBY = 0x36
 OP_USER_CONTROL_PRESSED = 0x44
 OP_USER_CONTROL_RELEASED = 0x45
 OP_GIVE_AUDIO_STATUS = 0x71
@@ -74,10 +75,13 @@ DIMMER_INTERNAL_MAX = 4
 BASS_TREBLE_MIN = -5
 BASS_TREBLE_MAX = 5
 
-#: UCP kódy hlasitosti
+#: UCP kódy hlasitosti a napájení
 UCP_VOLUME_UP = 0x41
 UCP_VOLUME_DOWN = 0x42
 UCP_MUTE_TOGGLE = 0x43
+UCP_POWER = 0x40
+UCP_POWER_ON = 0x6D
+UCP_POWER_OFF = 0x6C
 
 POWER_STATUSES = {0: "on", 1: "standby", 2: "turning_on", 3: "turning_off"}
 
@@ -121,6 +125,10 @@ def active_source_frame(pa: tuple[int, int]) -> list[int]:
 
 def give_power_status_frame() -> list[int]:
     return [OP_GIVE_DEVICE_POWER_STATUS]
+
+
+def standby_frame() -> list[int]:
+    return [OP_STANDBY]
 
 
 def give_audio_status_frame() -> list[int]:

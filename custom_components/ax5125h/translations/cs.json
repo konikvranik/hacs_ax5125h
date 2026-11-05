@@ -84,14 +84,16 @@
       "treble": { "name": "Výšky" }
     },
     "sensor": {
-      "power": { "name": "Napájení", "state": { "on": "Zapnuto", "standby": "Standby", "turning_on": "Zapíná se", "turning_off": "Vypíná se", "unknown": "Neznámý" } },
       "volume": { "name": "Hlasitost" },
       "support_features": { "name": "EZPlay podporované funkce" },
       "active_source": { "name": "Aktivní zdroj" }
     },
     "button": {
       "volume_up": { "name": "Hlasitost +" },
-      "volume_down": { "name": "Hlasitost −" },
+      "volume_down": { "name": "Hlasitost −" }
+    },
+    "switch": {
+      "power": { "name": "Napájení" },
       "mute": { "name": "Mute" }
     }
   },

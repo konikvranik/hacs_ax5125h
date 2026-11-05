@@ -14,7 +14,7 @@ from .client import EzplayError
 from .const import DOMAIN
 from .coordinator import SoundbarCoordinator
 from .entity import AxEntity
-from .ezplay import UCP_MUTE_TOGGLE, UCP_VOLUME_DOWN, UCP_VOLUME_UP
+from .ezplay import UCP_VOLUME_DOWN, UCP_VOLUME_UP
 from .transports import TransportError
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,7 +28,6 @@ async def async_setup_entry(
         [
             VolumeUpButton(coordinator),
             VolumeDownButton(coordinator),
-            MuteButton(coordinator),
         ]
     )
 
@@ -58,10 +57,3 @@ class VolumeDownButton(_VolumeButton):
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "volume_down", UCP_VOLUME_DOWN)
-
-
-class MuteButton(_VolumeButton):
-    _attr_icon = "mdi:volume-mute"
-
-    def __init__(self, coordinator: SoundbarCoordinator) -> None:
-        super().__init__(coordinator, "mute", UCP_MUTE_TOGGLE)

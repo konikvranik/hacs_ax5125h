@@ -27,5 +27,6 @@ def _ensure_configuration_yaml(hass):
     """Minimal configuration.yaml, pokud testing_config žádný nemá."""
     path = Path(hass.config.config_dir) / "configuration.yaml"
     if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("")
     yield

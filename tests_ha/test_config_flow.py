@@ -202,8 +202,8 @@ async def test_entry_setup_and_unload(
     assert any(s.state == "MOVIE" for s in selects), [s.state for s in selects]
     numbers = hass.states.async_all("number")
     assert any(s.state in ("0", "0.0") for s in numbers), [s.state for s in numbers]
-    sensors = hass.states.async_all("sensor")
-    assert any(s.state == "on" for s in sensors), [s.state for s in sensors]
+    switches = hass.states.async_all("switch")
+    assert any(s.state == "on" for s in switches), [s.state for s in switches]
 
     # entity musí mít unique_id a být připojené k zařízení (bez unique_id
     # je HA 2025.x+ k zařízení nepřipojí — "no devices" bug)
@@ -228,7 +228,7 @@ async def test_entry_setup_and_unload(
     )
     assert device is not None, "device registrace chybí"
     registered = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-    # 4 senzory + 3 tlačítka + 4 selecty + 2 numbers = 13
+    # 3 senzory + 2 tlačítka + 2 přepínače + 4 selecty + 2 numbers = 13
     assert len(registered) == 13, [e.unique_id for e in registered]
     assert registered, "žádné registrované entity"
     for e in registered:
@@ -269,8 +269,8 @@ async def test_rx_less_entry_power_from_entity(hass: HomeAssistant, enable_custo
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    sensors = hass.states.async_all("sensor")
-    assert any(s.state == "on" for s in sensors), [s.state for s in sensors]
+    switches = hass.states.async_all("switch")
+    assert any(s.state == "on" for s in switches), [s.state for s in switches]
 
     # A2 zápis: optimistic update bez rx (entity existuje a má EQ option)
     selects = hass.states.async_all("select")

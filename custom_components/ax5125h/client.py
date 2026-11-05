@@ -137,9 +137,9 @@ class EzplayClient:
             status = ez.parse_power_status(payload)
             if status:
                 self.data["power"] = status
-        elif opcode == ez.OP_REPORT_AUDIO_STATUS and src == self._sb_addr:
+        elif opcode == ez.OP_REPORT_AUDIO_STATUS and (src == self._sb_addr or src == 5):
             audio = ez.parse_audio_status(payload)
-            if audio:
+            if audio is not None:
                 self.data["mute"], self.data["volume"] = audio
         elif opcode == ez.OP_ACTIVE_SOURCE and dst == 0xF:
             pa = ez.parse_physical_address(payload)
@@ -149,11 +149,28 @@ class EzplayClient:
                     self.data["input"] = "hdmi"
                 elif pa == (0x00, 0x00):
                     self.data["input"] = "arc"
+        elif opcode == ez.OP_USER_CONTROL_PRESSED and dst == self._sb_addr and len(payload) >= 2:
+            code = payload[1]
+            if code == ez.UCP_VOLUME_UP and "volume" in self.data and self.data["volume"] is not None:
+                self.data["volume"] = min(100, int(self.data["volume"]) + 1)
+            elif code == ez.UCP_VOLUME_DOWN and "volume" in self.data and self.data["volume"] is not None:
+                self.data["volume"] = max(0, int(self.data["volume"]) - 1)
+            elif code == ez.UCP_MUTE_TOGGLE and "mute" in self.data and self.data["mute"] is not None:
+                self.data["mute"] = not self.data["mute"]
+            if self.rx_capable:
+                asyncio.create_task(self._send_give_audio_status())
 
         self._resolve_pending(payload)
         if opcode in (ez.OP_EZPLAY, ez.OP_REPORT_POWER_STATUS,
-                      ez.OP_REPORT_AUDIO_STATUS, ez.OP_ACTIVE_SOURCE):
+                      ez.OP_REPORT_AUDIO_STATUS, ez.OP_ACTIVE_SOURCE,
+                      ez.OP_USER_CONTROL_PRESSED):
             self._notify()
+
+    async def _send_give_audio_status(self) -> None:
+        try:
+            await self._send(self._tv_addr, self._sb_addr, ez.give_audio_status_frame())
+        except Exception:
+            pass
 
     def _handle_ezplay(self, src: int, payload: list[int]) -> None:
         sub = ez.ezplay_sub(payload)
@@ -227,6 +244,15 @@ class EzplayClient:
             self.data["last_seen"] = time.time()
             return self.data
 
+        audio = await self._request(
+            self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
+            lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
+        )
+        if audio is not None:
+            parsed = ez.parse_audio_status(audio)
+            if parsed is not None:
+                self.data["mute"], self.data["volume"] = parsed
+
         params = None
         for _ in range(2):
             await self._ensure_session()
@@ -249,14 +275,6 @@ class EzplayClient:
             self._support_queried = True
             await self.async_get_support_features()
 
-        audio = await self._request(
-            self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
-            lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
-        )
-        if audio is not None:
-            parsed = ez.parse_audio_status(audio)
-            if parsed:
-                self.data["mute"], self.data["volume"] = parsed
         self.data["last_seen"] = time.time()
         return self.data
 
@@ -315,13 +333,64 @@ class EzplayClient:
             raise ValueError(f"neznámý vstup: {which}")
         self.data["input"] = which
 
+    async def async_power_on(self) -> None:
+        """Zapne soundbar / receiver přes CEC."""
+        # 1. System Audio Mode Request — dle CEC spec (13.15.1) probudí AudioSystem ze standby
+        await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
+        await asyncio.sleep(0.1)
+        # 2. UCP Power On Function (0x6D) pro zařízení vyžadující explicitní power klávesu
+        await self._send(
+            self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
+        )
+        await asyncio.sleep(0.1)
+        await self._send(
+            self._tv_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
+        )
+        self.data["power"] = "on"
+        self._notify()
+
+    async def async_power_off(self) -> None:
+        """Převede soundbar / receiver do standby (CEC 0x36 Standby)."""
+        await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
+        self.data["power"] = "standby"
+        self._notify()
+
+    async def async_set_mute(self, enable: bool) -> None:
+        """Nastaví stav mute (přepne UCP Mute pokud stav neodpovídá)."""
+        current = self.data.get("mute")
+        if current is None or current != enable:
+            await self.async_volume_key(ez.UCP_MUTE_TOGGLE)
+        self.data["mute"] = enable
+        self._notify()
+
     async def async_volume_key(self, code: int) -> None:
-        """UCP stisk+puštění (volume up/down/mute)."""
+        """UCP stisk+puštění (volume up/down/mute) s aktualizací stavu."""
         await self._send(self._tv_addr, self._sb_addr,
                          ez.user_control_pressed(code))
         await asyncio.sleep(0.1)
         await self._send(self._tv_addr, self._sb_addr,
                          ez.user_control_released(code))
+        if self.rx_capable:
+            audio = await self._request(
+                self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
+                lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
+            )
+            if audio is not None:
+                parsed = ez.parse_audio_status(audio)
+                if parsed is not None:
+                    self.data["mute"], self.data["volume"] = parsed
+                    self._notify()
+                    return
+        # Optimistická aktualizace pokud dotaz neodpověděl
+        if code == ez.UCP_VOLUME_UP and "volume" in self.data and self.data["volume"] is not None:
+            self.data["volume"] = min(100, int(self.data["volume"]) + 1)
+            self._notify()
+        elif code == ez.UCP_VOLUME_DOWN and "volume" in self.data and self.data["volume"] is not None:
+            self.data["volume"] = max(0, int(self.data["volume"]) - 1)
+            self._notify()
+        elif code == ez.UCP_MUTE_TOGGLE and "mute" in self.data and self.data["mute"] is not None:
+            self.data["mute"] = not self.data["mute"]
+            self._notify()
 
     async def async_send_raw(self, src: int, dst: int, payload: list[int]) -> None:
         """Odešle libovolný rámec (pojistka na blokované subopcody výše)."""

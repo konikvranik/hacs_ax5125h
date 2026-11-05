@@ -39,6 +39,7 @@ PLATFORMS = (
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.BUTTON,
+    Platform.SWITCH,
 )
 
 DATA_CLIENT = "client"

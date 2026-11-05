@@ -17,9 +17,10 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | Bass / Výšky | number | −5 … +5 | ✅ |
 | Surround | select | PURE / PRO / OFF | ✅ |
 | Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
-| Napájení | sensor | on / standby / turning on/off (CEC 0x8F→0x90) | ✅ |
-| Hlasitost + mute | sensor | 0–100 % (CEC 0x71→0x7D) | ❓ best-effort — náš kus na 0x71 mlčí, senzor zůstává unknown (tlačítka fungují) |
-| Hlasitost +/−, Mute | button | CEC UCP (0x44/0x45) | ✅ |
+| Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
+| Hlasitost | sensor | 0–100 % (CEC 0x71→0x7D, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
+| Mute | switch | stav ztlumení (čtení z 0x7D + UCP 0x43 přepínání) | ✅ |
+| Hlasitost +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Vstup → ARC** | select | SAM Request jako TV (`0;5;0x70,0x00,0x00`) | ✅ |
 | **Vstup → HDMI IN** | select | Active Source za gateway (`0xE;0xF;0x82,0x31,0x00`) | ✅ |
 | Push změny z menu/ovladače | — | EZPlay `A5` inform → okamžitá aktualizace entit | ✅ |
