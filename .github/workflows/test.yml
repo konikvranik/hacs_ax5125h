@@ -18,4 +18,4 @@ jobs:
       - name: Set up Python
         run: uv python install 3.10
       - name: Run unit tests
-        run: uv run pytest tests/
+        run: uv run --with pytest --with pytest-asyncio --with anyio pytest tests/
