@@ -398,6 +398,35 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c._handle_frame(0, SB, [0x44, 0x42])
         self.assertEqual(c.data["volume"], 20)
 
+    async def test_set_volume(self):
+        """Absolutní hlasitost (EZPlay AC): frame, optimistic update,
+        potvrzení 0x71 readbackem (default_script odpovídá vol=37)."""
+        t = FakeTransport(default_script)
+        c = make_client(t)
+        await c.async_start()
+        c.data["volume"] = 20
+        await c.async_set_volume(20)
+        acs = [p for p in t.sent if len(p[2]) >= 6
+               and p[2][:5] == [0xA0, 0xA8, 0x82, 0x00, ez.SUB_SET_VOLUME]]
+        self.assertEqual(len(acs), 1)
+        self.assertEqual(acs[0], (0, SB, [0xA0, 0xA8, 0x82, 0x00, 0xAC, 20]))
+        # optimistic hned, pak 0x71 readback (fake odpovídá 37) přebije
+        self.assertEqual(c.data["volume"], 37)
+        self.assertTrue(any(p[2][:1] == [0x71] for p in t.sent))
+
+    async def test_set_volume_rx_less(self):
+        """rx-less transport: jen optimistic aplikace, žádný 0x71 dotaz."""
+        t = FakeTransport(None)
+        t.supports_rx = False
+        c = make_client(t)
+        await c.async_start()
+        c.data["volume"] = 20
+        await c.async_set_volume(55)
+        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
+                                              0xAC, 55]))
+        self.assertEqual(c.data["volume"], 55)
+        self.assertFalse(any(p[2][:1] == [0x71] for p in t.sent))
+
     async def test_volume_key(self):
         t = FakeTransport()
         c = make_client(t)

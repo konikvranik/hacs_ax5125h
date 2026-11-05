@@ -19,7 +19,7 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | Surround | select | **PURE / PRO / OFF** (tri-state read & written via Roku RTVR — EZPlay item2 is binary-only) | ✅ |
 | Display brightness (dimmer) | number (slider) | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
 | Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
-| Volume | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request activation + auto-query on UCP) | ✅ |
+| Volume | number (slider) | 0–100 % **absolute set** (EZPlay Set_Volume) + IR/UCP changes tracked (0x71→0x7A readback/push) | ✅ |
 | Mute | switch | mute state (read via 0x7A + UCP 0x43 toggling) | ✅ |
 | Volume +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Input → ARC** | select | System Audio Mode Request as the TV (`0;5;0x70,0x00,0x00`) | ✅ |
@@ -140,9 +140,10 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   (`SetState`/`ReportState`, option 1). The integration impersonates the Roku
   TV for the handshake; without RTVR support the select keeps the EZPlay
   on/off fallback.
-- Volume is relative only (UCP ± / mute) plus the 0x7A readout; the EZPlay
-  `AC Set_Volume` opcode has an unverified value format and is deliberately
-  unused.
+- Volume: absolute set goes through the EZPlay `AC Set_Volume` subopcode
+  (raw 0–100, live-verified). It has **no ack** — the write is confirmed by
+  the 0x7A push / a follow-up 0x71 readback; values > 100 are clamped to 100
+  by the firmware. Relative control (UCP ± buttons, mute toggle) still works.
 - After a reboot the soundbar ignores vendor commands for ~30 s (standard CEC
   init).
 

@@ -586,6 +586,29 @@ class EzplayClient:
         self.data["mute"] = enable
         self._notify()
 
+    async def async_set_volume(self, value: int) -> None:
+        """Absolutní hlasitost 0–100 (EZPlay Set_Volume; živě ověřeno 0.4.2).
+
+        FW: worker 0x1013a0 — raw scale, obj[7], >100 clampne HW na 100.
+        Bez acku; potvrzení je push 0x7A (handler už ho aplikuje) nebo
+        explicitní 0x71 readback. Optimisticky aplikujeme hned.
+        """
+        value = max(0, min(100, int(value)))
+        await self._ensure_session()
+        await self._send(self._tv_addr, self._sb_addr, ez.set_volume_frame(value))
+        self.data["volume"] = value
+        self._notify()
+        if self.rx_capable:
+            audio = await self._request(
+                self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
+                lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
+            )
+            if audio is not None:
+                parsed = ez.parse_audio_status(audio)
+                if parsed is not None:
+                    self.data["mute"], self.data["volume"] = parsed
+                    self._notify()
+
     async def async_volume_key(self, code: int) -> None:
         """UCP stisk+puštění (volume up/down/mute) s aktualizací stavu."""
         await self._send(self._tv_addr, self._sb_addr,

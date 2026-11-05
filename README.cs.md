@@ -18,7 +18,7 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | Surround | select | **PURE / PRO / VYPNUTO** (tri-state čtení i zápis přes Roku RTVR — EZPlay item2 je jen binární) | ✅ |
 | Jas displeje (dimmer) | number (posuvník) | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
 | Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
-| Hlasitost | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
+| Hlasitost | number (posuvník) | 0–100 % **absolutní zápis** (EZPlay Set_Volume) + změny z IR/UCP sledované (0x71→0x7A) | ✅ |
 | Mute | switch | stav ztlumení (čtení z 0x7A + UCP 0x43 přepínání) | ✅ |
 | Hlasitost +/− | button | CEC UCP (0x44/0x45) | ✅ |
 | **Vstup → ARC** | select | SAM Request jako TV (`0;5;0x70,0x00,0x00`) | ✅ |
@@ -135,8 +135,10 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   čte i zapisuje přes protokol **Roku RTVR** (`SetState`/`ReportState`,
   option 1). Integrace se pro handshake vydává za Roku TV; bez RTVR podpory
   zůstává select na EZPlay on/off fallbacku.
-- Hlasitost je jen relativní (UCP ± / mute) + čtení 0x7A; EZPlay `AC
-  Set_Volume` má neověřený formát hodnoty a záměrně se nepoužívá.
+- Hlasitost: absolutní zápis jde přes EZPlay `AC Set_Volume` subopcode
+  (raw 0–100, živě ověřeno). **Nemá ack** — zápis potvrzuje push 0x7A /
+  navazující 0x71 readback; hodnoty > 100 FW clampne na 100. Relativní
+  ovládání (UCP ± tlačítka, mute toggle) zůstává.
 - Soundbar po rebootu ~30 s ignoruje vendor příkazy (standardní CEC init).
 
 ## Ikona integrace

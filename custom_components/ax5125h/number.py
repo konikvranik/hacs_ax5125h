@@ -1,4 +1,4 @@
-"""Number entity: BASS/TREBLE (−5..+5) a jas displeje (0–3), všechny slider."""
+"""Number entity: BASS/TREBLE (−5..+5), jas displeje (0–3), hlasitost (0–100)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ import logging
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .client import EzplayError
 from .const import DOMAIN
@@ -31,7 +33,12 @@ async def async_setup_entry(
 ) -> None:
     coordinator: SoundbarCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
-        [BassNumber(coordinator), TrebleNumber(coordinator), DimmerNumber(coordinator)]
+        [
+            BassNumber(coordinator),
+            TrebleNumber(coordinator),
+            DimmerNumber(coordinator),
+            VolumeNumber(coordinator),
+        ]
     )
 
 
@@ -105,6 +112,50 @@ class DimmerNumber(AxEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         try:
             await self.coordinator.client.async_set_dimmer(int(value))
+        except (EzplayError, TransportError) as exc:
+            raise HomeAssistantError(str(exc)) from exc
+        self.coordinator.async_update_listeners()
+
+
+class VolumeNumber(AxEntity, RestoreEntity, NumberEntity):
+    """Hlasitost 0–100 jako slider (od 0.4.2; dřív sensor).
+
+    Zápis = absolutní EZPlay Set_Volume (živě ověřeno, push 0x7A hned
+    potvrdí); čtení sleduje i IR/UCP změny přes coordinator data.
+    Hodnota přežije restart (RestoreEntity, jako dřív sensor).
+    """
+
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_translation_key = "volume"
+    _attr_icon = "mdi:volume-high"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.sb_data.get("volume") is None:
+            last_state = await self.async_get_last_state()
+            if last_state is not None and last_state.state not in (
+                "unknown", "unavailable", None,
+            ):
+                try:
+                    self.coordinator.data.setdefault(
+                        "volume", int(float(last_state.state)))
+                except (TypeError, ValueError):
+                    pass
+
+    @property
+    def native_value(self) -> float | None:
+        value = self.sb_data.get("volume")
+        if value is None:
+            return None
+        return float(min(100, max(0, int(value))))
+
+    async def async_set_native_value(self, value: float) -> None:
+        try:
+            await self.coordinator.client.async_set_volume(int(value))
         except (EzplayError, TransportError) as exc:
             raise HomeAssistantError(str(exc)) from exc
         self.coordinator.async_update_listeners()

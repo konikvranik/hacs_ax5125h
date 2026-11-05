@@ -81,10 +81,10 @@
     "number": {
       "bass": { "name": "Bas" },
       "treble": { "name": "Výšky" },
-      "dimmer": { "name": "Jas displeje" }
+      "dimmer": { "name": "Jas displeje" },
+      "volume": { "name": "Hlasitost" }
     },
     "sensor": {
-      "volume": { "name": "Hlasitost" },
       "support_features": { "name": "EZPlay podporované funkce" },
       "active_source": { "name": "Aktivní zdroj" }
     },

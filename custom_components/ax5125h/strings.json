@@ -81,10 +81,10 @@
     "number": {
       "bass": { "name": "Bass" },
       "treble": { "name": "Treble" },
-      "dimmer": { "name": "Display brightness" }
+      "dimmer": { "name": "Display brightness" },
+      "volume": { "name": "Volume" }
     },
     "sensor": {
-      "volume": { "name": "Volume" },
       "support_features": { "name": "EZPlay support features" },
       "active_source": { "name": "Active source" }
     },

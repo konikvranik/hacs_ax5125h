@@ -115,12 +115,12 @@
       },
       "dimmer": {
         "name": "Display brightness"
+      },
+      "volume": {
+        "name": "Volume"
       }
     },
     "sensor": {
-      "volume": {
-        "name": "Volume"
-      },
       "support_features": {
         "name": "EZPlay support features"
       },

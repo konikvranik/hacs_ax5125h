@@ -50,7 +50,10 @@ SUB_GET_ITEM_VALUE = 0xA3              # <item>        -> A4 <item> <val>
 SUB_ITEM_REPORT = 0xA4
 SUB_ITEM_CHANGED = 0xA5                # push při změně z menu/ovladače!
 SUB_RESET_ALL_PARAMS = 0xA6            # DESTRUKTIVNI - nikdy neposílat
-SUB_SET_VOLUME = 0xAC                  # neověřený formát hodnoty (holý -> vol=0)
+SUB_SET_VOLUME = 0xAC                  # <vol 0–100> raw (živě 0.4.2; FW
+                                       # worker 0x1013a0, obj[7]; >100
+                                       # clampne HW na 100; bez acku —
+                                       # hned jde push 0x7A)
 SUB_GIVE_ALL_ITEM_RANGE = 0xB0         # DESTRUKTIVNI na AX5125H!
 SUB_GIVE_ITEM_RANGE = 0xB2             # DESTRUKTIVNI na AX5125H!
 SUB_SET_SWITCH_FEATURES = 0xB4         # feature 2 = Symphony
@@ -119,6 +122,11 @@ def get_item_frame(item: int) -> list[int]:
 
 def set_item_frame(item: int, value: int) -> list[int]:
     return ezplay_frame(SUB_SET_ITEM_VALUE, [item, value & 0xFF])
+
+
+def set_volume_frame(value: int) -> list[int]:
+    """Absolutní hlasitost 0–100 (Set_Volume; živě ověřeno — push 0x7A)."""
+    return ezplay_frame(SUB_SET_VOLUME, [max(0, min(100, int(value))) & 0xFF])
 
 
 def give_support_features_frame() -> list[int]:
