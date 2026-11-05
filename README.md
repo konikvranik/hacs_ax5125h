@@ -126,12 +126,15 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 ## Power ON/OFF and power state (0.5.0 — live-verified)
 
 - **OFF** = CEC `<Standby>` (0x36), works reliably.
-- **ON** = **`Set Stream Path` broadcast targeting the port BEHIND the
-  soundbar** (HDMI IN, e.g. `0;F;0x86,0x31,0x00`). This is the only CEC frame
-  the AX5125H actually wakes to — verified live even from **deep standby**
-  (red LED off). UCP Power On (0x6D), SAM Request (0x70) and Set System Audio
-  Mode (0x72) are all ignored while dark. It is the same mechanism Kodi/TV
-  use: they announce an active source behind the bar and it turns on to route.
+- **ON** = **`Set Stream Path` + `Active Source` broadcast targeting the
+  port BEHIND the soundbar** (HDMI IN, e.g. `0;F;0x86,0x31,0x00` +
+  `0xE;0xF;0x82,0x31,0x00`). Set Stream Path is the only frame verified to
+  wake the bar from **deep standby** (red LED off, live-verified); Active
+  Source is the other half of the Kodi/TV wake dance. UCP Power On (0x6D),
+  SAM Request (0x70) and Set System Audio Mode (0x72) are all ignored while
+  dark. After sending, the result is **verified** by polling the audio
+  status (unmute = awake); if the bar still reports mute, the wake failed
+  and the state honestly reverts to *standby* (no stuck optimistic *on*).
   Side effect: the bar wakes on its HDMI IN input.
 - **Power state**: the CEC `Report Power Status` (0x8F) is **useless on this
   device** — it reports `On` in every state. The only state signal is the
@@ -140,9 +143,15 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   *on* even when muted; a mute flip seen **only** by the poll (deep standby
   emits no frames) → *standby*; a poll-unmute inside the soft-standby window
   right after a HA power-off stays *standby* (the dark soft-standby phase
-  still reports unmute). So: an on-but-muted soundbar correctly stays *on*,
-  and HA flips to *standby* when the red LED actually goes off. The
-  media_player state mirrors this.
+  still reports unmute). The media_player state mirrors this.
+- **Adaptive polling**: while the bar is *on* and active (any HA command or
+  push from the bar within the last 10 min), the integration polls at the
+  configured interval incl. vendor queries. Once idle or in standby it
+  slows to a **60 s audio-only probe** — the same cadence as the TV's own
+  heartbeat, which the soundbar tolerates while going to deep sleep. This
+  is essential: a fast vendor poll keeps the bar in *soft* standby forever
+  (its CEC stays unmuted) and the deep-standby mute signal would never
+  arrive. Any push or command switches back to fast polling immediately.
 
 ## Limitations / notes
 

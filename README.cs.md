@@ -123,22 +123,32 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
 ## Zapnutí / vypnutí a stav napájení (0.5.0 — živě ověřeno)
 
 - **VYP** = CEC `<Standby>` (0x36), funguje spolehlivě.
-- **ZAP** = **`Set Stream Path` broadcast mířící na port ZA soundbarem**
-  (HDMI IN, např. `0;F;0x86,0x31,0x00`). Jediný CEC rámec, kterému se AX5125H
-  skutečně probudí — živě ověřeno i z **hlubokého standby** (zhasnutá červená
-  LED). UCP Power On (0x6D), SAM Request (0x70) i Set System Audio Mode (0x72)
-  ve tmavém stavu ignoruje. Je to ten samý mechanismus, jakým ho budí Kodi/TV:
-  ohlásí aktivní zdroj za soundbarem a ten se zapne, aby stream routoval.
-  Vedlejší efekt: bar se probudí na vstupu HDMI IN.
+- **ZAP** = **`Set Stream Path` + `Active Source` broadcast mířící na port
+  ZA soundbarem** (HDMI IN, např. `0;F;0x86,0x31,0x00` +
+  `0xE;0xF;0x82,0x31,0x00`). Set Stream Path je jediný rámec ověřený jako
+  wake z **hlubokého standby** (zhasnutá LED, živě); Active Source je druhá
+  půlka Kodi/TV probuzení. UCP Power On (0x6D), SAM Request (0x70) i Set
+  System Audio Mode (0x72) ve tmě ignoruje. Po odeslání se výsledek
+  **verifikuje** pollem audio statusu (unmute = probuzeno); když bar stále
+  hlásí mute, zapnutí se nepovedlo a stav se poctivě vrátí na *standby*
+  (žádné zaseknuté optimistické *on*). Vedlejší efekt: bar se probudí na
+  vstupu HDMI IN.
 - **Stav napájení**: CEC `Report Power Status` (0x8F) je na tomto zařízení
   **k ničemu** — hlásí `On` vždy. Jediný stavový signál je **mute bit** v
   `Report Audio Status` (0x71→0x7A), vyhodnocovaný kontextově: spontánní
   `7A` push (IR/HA mute či volume) znamená, že bar žije → *on*, i když je
   ztlumený; mute přechod viděný **jen** pollem (hluboký standby neprodukuje
   žádné rámce) → *standby*; poll-unmute v soft-standby okně těsně po HA
-  vypnutí zůstává *standby* (tmavá měkká fáze hlásí unmute). Takže
-  rozsvícený+ztlumený soundbar správně zůstává *on* a HA se překlopí na
-  *standby*, až červená LED reálně zhasne. Media player stav to zrcadlí.
+  vypnutí zůstává *standby* (tmavá měkká fáze hlásí unmute). Media player
+  stav to zrcadlí.
+- **Adaptivní polling**: když je bar *on* a aktivní (jakýkoliv HA příkaz
+  nebo push ze soundbaru během posledních 10 min), pollí integrace
+  konfigurovaným intervalem včetně vendor dotazů. V idle/standby zpomalí na
+  **60 s audio-only probe** — stejná cadence, jakou má TV heartbeat, který
+  soundbaru brání v hlubokém spánku nejvýš tolik, kolik snese. To je
+  nezbytné: rychlý vendor poll drží bar v *měkkém* standby navždy (CEC
+  zůstává unmute) a mute signál hlubokého standby by nikdy nedorazil.
+  Každý push nebo příkaz vrátí rychlý polling okamžitě.
 
 ## Omezení / poznámky
 

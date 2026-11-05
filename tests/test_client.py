@@ -139,6 +139,35 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         sent_ops = [p[2][0] for p in t.sent]
         self.assertEqual(sent_ops, [ez.OP_GIVE_AUDIO_STATUS])
 
+    async def test_refresh_audio_only(self):
+        """audio_only=True: jen 0x71 probe, žádný vendor provoz (idle fáze —
+        rychlý vendor poll by držel bar v měkkém standby navždy)."""
+        t = FakeTransport(default_script)
+        c = make_client(t)
+        await c.async_start()
+        await c.async_refresh(audio_only=True)
+        sent_ops = [p[2][0] for p in t.sent]
+        self.assertEqual(sent_ops, [ez.OP_GIVE_AUDIO_STATUS])
+        self.assertNotIn(0xA0, sent_ops)
+
+    async def test_activity_tracking(self):
+        """Spontánní rámce ze SB a HA příkazy = aktivita ( rychlý polling),
+        odpovědi na náš poll ne."""
+        t = FakeTransport(default_script)
+        c = make_client(t)
+        await c.async_start()
+        c.data.setdefault("last_activity", 0.0)
+        await c.async_refresh()                       # poll odpovědi: bez změny
+        self.assertEqual(c.data["last_activity"], 0.0)
+        c._handle_frame(SB, 0, [0x7A, 30])            # spontánní push
+        self.assertGreater(c.data["last_activity"], 0.0)
+        c.data["last_activity"] = 0.0
+        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x01, 0x02])
+        self.assertGreater(c.data["last_activity"], 0.0)  # A5 push
+        c.data["last_activity"] = 0.0
+        await c.async_set_volume(10)                  # HA příkaz
+        self.assertGreater(c.data["last_activity"], 0.0)
+
 
 class TestWrites(unittest.IsolatedAsyncioTestCase):
     async def test_rx_less_set_item_optimistic(self):
@@ -427,9 +456,9 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t.sent[1], (0, SB, [0x45, 0x41]))
 
     async def test_power_on(self):
-        """Power ON = Set Stream Path broadcast na HDMI IN port (živě ověřeno:
-        jediný funkční CEC wake, probudí i z deep standby) + verify loop přes
-        mute bit (po probuzení unmute -> break)."""
+        """Power ON = Set Stream Path (deep standby wake, živě ověřeno)
+        + Active Source (měkká fáze / Kodi dance) na HDMI IN port; verify
+        loop potvrdí unmute -> on."""
         def awake(src, dst, payload):
             if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
                 return (SB, 0, [0x7A, 25])                 # unmute po probuzení
@@ -440,18 +469,37 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(t.sent[0], (0, 0xF, [0x86, 0x31, 0x00]))
+        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["power"], "on")
         self.assertFalse(c.data["mute"])
         self.assertFalse(any(p[2][0] in (0x70, 0x44, 0x45) for p in t.sent))
 
+    async def test_power_on_failed_reverts_to_standby(self):
+        """Probuzení se nepovedlo (0x71 stále mute) → optimistické on se
+        vrací na standby (jinak by mute-sticky model zamrzl na on)."""
+        def still_deep(src, dst, payload):
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 0x80 | 27])          # stále hluboký standby
+            return None
+
+        t = FakeTransport(still_deep)
+        c = make_client(t)
+        await c.async_start()
+        await c.async_power_on()
+        self.assertEqual(c.data["power"], "standby")
+        self.assertTrue(c.data["mute"])
+
     async def test_power_on_rx_less(self):
-        """rx-less transport: jen SetStreamPath frame, žádný verify loop."""
+        """rx-less transport: oba wake rámce, žádný verify loop."""
         t = FakeTransport(None)
         t.supports_rx = False
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        self.assertEqual(t.sent, [(0, 0xF, [0x86, 0x31, 0x00])])
+        self.assertEqual(
+            t.sent,
+            [(0, 0xF, [0x86, 0x31, 0x00]), (GW, 0xF, [0x82, 0x31, 0x00])],
+        )
         self.assertEqual(c.data["power"], "on")
 
     async def test_source_pressed_cycles_inputs(self):

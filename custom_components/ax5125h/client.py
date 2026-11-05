@@ -205,7 +205,10 @@ class EzplayClient:
             if self.rx_capable:
                 asyncio.create_task(self._send_give_audio_status())
 
-        self._resolve_pending(payload)
+        if not self._resolve_pending(payload) and src == self._sb_addr:
+            # spontánní rámec ze soundbaru (ne odpověď na náš dotaz) =
+            # aktivita uživatele → pustíme rychlý polling
+            self.data["last_activity"] = time.time()
         if opcode in (ez.OP_EZPLAY, ez.OP_REPORT_POWER_STATUS,
                       ez.OP_REPORT_AUDIO_STATUS, ez.OP_ACTIVE_SOURCE,
                       ez.OP_ROUTING_CHANGE, ez.OP_SET_STREAM_PATH,
@@ -233,9 +236,14 @@ class EzplayClient:
             # spontánní push: bar reaguje na IR/HA → živý = on; zároveň
             # ukončí případné potlačení po power_off
             self.data["power_suppress_until"] = 0.0
+            self.data["last_activity"] = time.time()
             self.data["power"] = "on"
         elif not audio[0]:
             if time.time() > self.data.get("power_suppress_until", 0.0):
+                if self.data.get("power") == "standby":
+                    # standby→on poll flip: bar se probudil sám (TV/Kodi)
+                    # = aktivita, pustíme rychlý polling
+                    self.data["last_activity"] = time.time()
                 self.data["power"] = "on"
         elif prev_mute is not True:
             # poll viděl mute bez push signálu (0→1 přechod, nebo první
@@ -308,11 +316,13 @@ class EzplayClient:
             self.data[key] = max(ez.BASS_TREBLE_MIN,
                                  min(ez.BASS_TREBLE_MAX, decoded))
 
-    def _resolve_pending(self, payload: list[int]) -> None:
+    def _resolve_pending(self, payload: list[int]) -> bool:
+        """Vrací True, když rámec uzavřel některý čekající request."""
         for pending in self._pending:
             if not pending.future.done() and pending.predicate(payload):
                 pending.future.set_result(payload)
-                return  # jeden rámec uzavře max. jeden request
+                return True  # jeden rámec uzavře max. jeden request
+        return False
 
     def _notify(self) -> None:
         if self._on_update:
@@ -322,14 +332,19 @@ class EzplayClient:
                 _LOGGER.exception("on_update callback selhal")
 
     # -- veřejné API ---------------------------------------------------------
-    async def async_refresh(self) -> dict:
+    async def async_refresh(self, audio_only: bool = False) -> dict:
         """Poll: audio status (power/volume/mute) -> (pokud živý) all-params.
+
+        audio_only=True = jen lehký 0x71 probe (používá coordinator v idle/
+        standby fázi) — vendor provoz by držel bar v měkkém standby navždy,
+        takže by se nikdy nedostal do hlubokého standby, jehož mute bit je
+        jediný spolehlivý stavový signál.
 
         Power model (živě 2026-11-05, docs research-log #12): CEC 0x8F hlásí
         ON vždy (soft i deep standby) — nepoužitelné. Jediný CEC rozlišovač
         stavu AX5125H je mute bit v 0x71 Report Audio Status, vyhodnocovaný
         kontextově v _apply_audio (přechody + push detekce): spontánní push
-        = on (bar živý, i ztlumený), poll mute 0→1 přechod = deep standby,
+        = on (bar živý, i ztlumený), poll mute přechod = deep standby,
         trvalý mute po pushi = zůstává on, unmute v soft-standby okně po
         power_off = zůstává standby.
         """
@@ -352,8 +367,9 @@ class EzplayClient:
             )
         self._apply_audio(parsed, is_reply=True)
 
-        if parsed[0] and self.data.get("power") != "on":
-            # deep standby (mute přechod bez push) — vendor provoz šetříme
+        if audio_only or (parsed[0] and self.data.get("power") != "on"):
+            # deep standby (mute přechod bez push) / idle fáze — vendor
+            # provoz šetříme (i kvůli hlubokému standby samotného baru)
             self.data["last_seen"] = time.time()
             return self.data
 
@@ -430,12 +446,14 @@ class EzplayClient:
 
         rx-less transport: ack nečekáme (nedojde), stav aplikujeme optimisticky.
         """
+        self.data["last_activity"] = time.time()
         if not self.rx_capable:
             await self._ensure_session()
             await self._send(self._tv_addr, self._sb_addr,
                              ez.set_item_frame(item, value))
             self._apply_item(item, value & 0xFF)
             return value & 0xFF
+        self.data["last_activity"] = time.time()
         for attempt in range(2):
             await self._ensure_session()
             resp = await self._request(
@@ -456,6 +474,7 @@ class EzplayClient:
         """Přepnutí vstupu: 'arc' (SAM Request jako TV) / 'hdmi' (Active
         Source broadcast za gateway — soundbar přijímá routing jen od
         switch-role zařízení z eARC strany)."""
+        self.data["last_activity"] = time.time()
         which = which.lower()
         if which == "arc":
             await self._send(self._tv_addr, self._sb_addr,
@@ -467,33 +486,47 @@ class EzplayClient:
         self.data["input"] = which
 
     async def async_power_on(self) -> None:
-        """Zapne soundbar: Set Stream Path broadcast na HDMI IN port.
+        """Zapne soundbar: Set Stream Path + Active Source broadcast na
+        HDMI IN port, s verifikací a poctivým revertem.
 
-        Živě ověřeno 2026-11-05 (research-log #12): jediný funkční CEC wake
-        AX5125H, probudí i z deep standby (LED zhaslá). Bar se přepne na
-        HDMI IN a rozsvítí — stejný mechanismus, jakým ho probouzí TV/Kodi
-        Active-Source dance. UCP 0x6D, SAM Request 0x70 i Set SAM 0x72
-        v dark stavu nezabírají.
-        Po odeslání krátce verifikujeme mute bit (deep standby hlásí mute=1;
-        po probuzení unmute), aby stav plynul hned, ne až s refreshem.
+        Živě ověřeno 2026-11-05 (research-log #12): SetStreamPath (0x86)
+        probouzí i z hlubokého standby (LED zhaslá). Active Source (0x82)
+        doplňuje druhou ověřenou cestu — Kodi dance broadcastoval AS těsně
+        před probuzením (měkká fáze). UCP 0x6D, SAM 0x70/0x72 a IVO/TVOn
+        v dark stavu nezabírají (sweeps #12).
+
+        Verify loop (poll 0x71): unmute = probuzeno potvrzeno; pokud bar
+        celou dobu hlásí mute=1, NEzapnul se — optimistické on musíme
+        vrátit na standby, jinak mute-sticky model zamrzne na on
+        (přesně ta zkušenost uživatele „HA hlásí on i když je vypnutý
+        a nejde zapnout").
         """
+        self.data["last_activity"] = time.time()
         await self._send(self._tv_addr, 0xF, ez.set_stream_path_frame(self._hdmi_pa))
+        await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
         self.data["power"] = "on"
         self.data["power_suppress_until"] = 0.0
         self._notify()
         if not self.rx_capable:
             return
-        for _ in range(4):
-            await asyncio.sleep(1.5)
+        woke = False
+        for attempt in range(4):
+            await asyncio.sleep(2.5)
             audio = await self._request(
                 self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
                 lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
             )
             parsed = ez.parse_audio_status(audio) if audio is not None else None
             if parsed is not None:
-                self.data["mute"], self.data["volume"] = parsed
+                self._apply_audio(parsed, is_reply=True)
                 if not parsed[0]:
+                    woke = True
                     break
+        if not woke:
+            _LOGGER.info(
+                "power ON nepotvrzen (0x71 stále mute) — vracím stav standby"
+            )
+            self.data["power"] = "standby"
         self._notify()
 
     async def async_power_off(self) -> None:
@@ -503,6 +536,7 @@ class EzplayClient:
         zpět na on — nastavíme potlačení SOFT_STANDBY_WINDOW; skončí dřív při
         mute=1 (deep) nebo spontánním pushi (bar zase žije).
         """
+        self.data["last_activity"] = time.time()
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
         self.data["power"] = "standby"
         self.data["power_suppress_until"] = time.time() + SOFT_STANDBY_WINDOW
@@ -633,6 +667,7 @@ class EzplayClient:
 
     async def async_set_mute(self, enable: bool) -> None:
         """Nastaví stav mute (přepne UCP Mute pokud stav neodpovídá)."""
+        self.data["last_activity"] = time.time()
         current = self.data.get("mute")
         if current is None or current != enable:
             await self.async_volume_key(ez.UCP_MUTE_TOGGLE)
@@ -646,6 +681,7 @@ class EzplayClient:
         Bez acku; potvrzení je push 0x7A (handler už ho aplikuje) nebo
         explicitní 0x71 readback. Optimisticky aplikujeme hned.
         """
+        self.data["last_activity"] = time.time()
         value = max(0, min(100, int(value)))
         await self._ensure_session()
         await self._send(self._tv_addr, self._sb_addr, ez.set_volume_frame(value))
@@ -664,6 +700,7 @@ class EzplayClient:
 
     async def async_volume_key(self, code: int) -> None:
         """UCP stisk+puštění (volume up/down/mute) s aktualizací stavu."""
+        self.data["last_activity"] = time.time()
         await self._send(self._tv_addr, self._sb_addr,
                          ez.user_control_pressed(code))
         await asyncio.sleep(0.1)
