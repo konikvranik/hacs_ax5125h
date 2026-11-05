@@ -155,8 +155,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     )
     coordinator = SoundbarCoordinator(hass, entry, client)
 
-    # push notifikace (A5/Active Source) -> coordinator
-    client.set_update_callback(coordinator.async_set_updated_data)
+    # push notifikace (A5/Active Source/0x90/0x7A) -> coordinator
+    client.set_update_callback(coordinator.handle_push)
 
     try:
         await client.async_start()

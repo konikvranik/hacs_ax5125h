@@ -88,7 +88,9 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(t.sent.index(spoofs[0]), first_ezplay)
 
-    async def test_refresh_standby_skips_params(self):
+    async def test_refresh_real_standby_probe_once(self):
+        """Skutečný standby (vendor vrstva mlčí): probe 0x71 + A0 jednou,
+        žádné support query, stav zůstává standby."""
         def standby(src, dst, payload):
             if payload[0] == 0x8F:
                 return (SB, 0, [0x90, 0x01])
@@ -99,12 +101,86 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         await c.async_start()
         data = await c.async_refresh()
         self.assertEqual(data["power"], "standby")
+        self.assertEqual(data["cec_power"], "standby")
         sent_ops = [p[2][0] for p in t.sent]
-        self.assertNotIn(ez.OP_GIVE_AUDIO_STATUS, sent_ops)
-        # žádný A0 all-params dotaz
-        self.assertFalse(
-            any(ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS for p in t.sent)
-        )
+        self.assertIn(ez.OP_GIVE_AUDIO_STATUS, sent_ops)   # liveness probe
+        a0s = [
+            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
+        ]
+        self.assertEqual(len(a0s), 1)                      # probe bez retry
+        support = [
+            p for p in t.sent
+            if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_SUPPORT_FEATURES
+        ]
+        self.assertEqual(support, [])
+
+    async def test_refresh_fake_standby_on_opt(self):
+        """"Fake" standby na ne-CEC vstupu: 0x8F hlásí standby, ale soundbar
+        hraje (odpovídá 0x7A s unmute + volume > 0) -> power on."""
+        def opt_playing(src, dst, payload):
+            if payload[0] == 0x8F:
+                return (SB, 0, [0x90, 0x01])
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 25])                 # unmute, vol 25
+            if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
+                return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA1, 1, 1, 0x80, 0x82, 2])
+            return None
+
+        t = FakeTransport(opt_playing)
+        c = make_client(t)
+        await c.async_start()
+        data = await c.async_refresh()
+        self.assertEqual(data["power"], "on")
+        self.assertEqual(data["cec_power"], "standby")
+        self.assertEqual(data["volume"], 25)
+        self.assertFalse(data["mute"])
+        self.assertEqual(data["eq"], 1)
+        # vendor probe se nespustil -> A0 jen jako param dotaz, jednou
+        a0s = [
+            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
+        ]
+        self.assertEqual(len(a0s), 1)
+
+    async def test_refresh_ambiguous_audio_vendor_alive(self):
+        """Standby + muted/volume 0 (nejednoznačné) -> rozhodne EZPlay A1;
+        odpovídá -> hraje, parametry se aplikují bez druhého A0."""
+        def script(src, dst, payload):
+            if payload[0] == 0x8F:
+                return (SB, 0, [0x90, 0x01])
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 0x80])               # muted, volume 0
+            if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
+                return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA1, 3, 2, 0x82, 0x80, 1])
+            return None
+
+        t = FakeTransport(script)
+        c = make_client(t)
+        await c.async_start()
+        data = await c.async_refresh()
+        self.assertEqual(data["power"], "on")
+        self.assertEqual(data["eq"], 3)
+        self.assertTrue(data["mute"])
+        a0s = [
+            p for p in t.sent if ez.ezplay_sub(p[2]) == ez.SUB_GIVE_ALL_PARAMS
+        ]
+        self.assertEqual(len(a0s), 1)
+
+    async def test_refresh_ambiguous_audio_vendor_dead_stays_standby(self):
+        """Standby + mute hlášení a mlčící vendor vrstva = skutečný standby."""
+        def script(src, dst, payload):
+            if payload[0] == 0x8F:
+                return (SB, 0, [0x90, 0x01])
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 0x80])
+            return None
+
+        t = FakeTransport(script)
+        c = make_client(t)
+        await c.async_start()
+        data = await c.async_refresh()
+        self.assertEqual(data["power"], "standby")
+        self.assertEqual(data["cec_power"], "standby")
+        self.assertNotIn("eq", data)
 
     async def test_refresh_timeout_raises(self):
         t = FakeTransport(None)

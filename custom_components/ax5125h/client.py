@@ -252,7 +252,7 @@ class EzplayClient:
 
     # -- veřejné API ---------------------------------------------------------
     async def async_refresh(self) -> dict:
-        """Poll: power status -> (pokud zapnuto) all-params + audio status."""
+        """Poll: power status -> audio status -> (pokud živý) all-params."""
         if not self.rx_capable:
             # rx-less transport: žádné dotazy (odpověď by stejně nedošla);
             # power doplňuje coordinator z entity, vendor stavy optimistic
@@ -264,11 +264,17 @@ class EzplayClient:
             lambda p: (p[0] == ez.OP_REPORT_POWER_STATUS), self.t_short,
         )
         if power is not None:
-            self.data["power"] = ez.parse_power_status(power) or "unknown"
-        if self.data.get("power") in ("standby", "turning_off"):
-            self.data["last_seen"] = time.time()
-            return self.data
+            self.data["cec_power"] = ez.parse_power_status(power) or "unknown"
+            self.data["power"] = self.data["cec_power"]
 
+        standby = self.data.get("power") in ("standby", "turning_off")
+        params_done = False
+
+        # Audio status (0x71 -> 0x7A): normální čtení; ve standby navíc
+        # liveness signál. CEC standby na ne-CEC vstupech (OPT/AUX/USB/BT)
+        # je totiž "fake" — soundbar hraje, jen jeho CEC role zůstává
+        # standby (přechodný Report Power Status Standby při přepnutí
+        # vstupu; docs soundbar-ax5125h).
         audio = await self._request(
             self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
             lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
@@ -277,24 +283,42 @@ class EzplayClient:
             parsed = ez.parse_audio_status(audio)
             if parsed is not None:
                 self.data["mute"], self.data["volume"] = parsed
+            if standby and (
+                not parsed or (not parsed[0] and parsed[1] > 0)
+            ):
+                # odpovídá a hlásí unmute + volume > 0 -> jednoznačně hraje
+                self.data["power"] = "on"
+                standby = False
+        if standby:
+            # nejednoznačné (muted / volume 0) nebo mlčí — rozhodne živá
+            # EZPlay vrstva (A0 -> A1; ve skutečném standby neodpovídá)
+            params_done = await self._vendor_alive()
+            if params_done:
+                self.data["power"] = "on"
+                standby = False
+            else:
+                self.data["last_seen"] = time.time()
+                return self.data
 
-        params = None
-        for _ in range(2):
-            await self._ensure_session()
-            resp = await self._request(
-                self._tv_addr, self._sb_addr, ez.give_all_params_frame(),
-                lambda p: ez.ezplay_sub(p) == ez.SUB_ALL_PARAMS, self.t_params,
-            )
-            if resp is not None:
-                params = ez.parse_all_params(resp)
-                if params:
-                    break
-            self._last_spoof = None  # vynutit čerstvý spoof pro retry
-        if params is None:
-            raise EzplayTimeout(
-                "soundbar neodpovídá (A0 -> A1 timeout; session/CEC výpadek?)"
-            )
-        self._apply_params(params)
+        if not params_done:
+            params = None
+            for _ in range(2):
+                await self._ensure_session()
+                resp = await self._request(
+                    self._tv_addr, self._sb_addr, ez.give_all_params_frame(),
+                    lambda p: ez.ezplay_sub(p) == ez.SUB_ALL_PARAMS,
+                    self.t_params,
+                )
+                if resp is not None:
+                    params = ez.parse_all_params(resp)
+                    if params:
+                        break
+                self._last_spoof = None  # vynutit čerstvý spoof pro retry
+            if params is None:
+                raise EzplayTimeout(
+                    "soundbar neodpovídá (A0 -> A1 timeout; session/CEC výpadek?)"
+                )
+            self._apply_params(params)
 
         if not self._support_queried:
             self._support_queried = True
@@ -302,6 +326,23 @@ class EzplayClient:
 
         self.data["last_seen"] = time.time()
         return self.data
+
+    async def _vendor_alive(self) -> bool:
+        """Odpovídá EZPlay vrstva? Jediný pokus A0 -> A1 (bez retry cyklu).
+
+        Ve skutečném standby vendor vrstva neodpovídá (proto původní refresh
+        ve standby poll skoroval); na ne-CEC vstupu (OPT/AUX/USB/BT) naopak
+        žije, i když CEC power zůstává standby.
+        """
+        await self._ensure_session()
+        resp = await self._request(
+            self._tv_addr, self._sb_addr, ez.give_all_params_frame(),
+            lambda p: ez.ezplay_sub(p) == ez.SUB_ALL_PARAMS, self.t_params,
+        )
+        params = ez.parse_all_params(resp) if resp is not None else None
+        if params:
+            self._apply_params(params)
+        return bool(params)
 
     async def async_get_support_features(self) -> tuple[int, int] | None:
         await self._ensure_session()

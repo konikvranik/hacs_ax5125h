@@ -53,6 +53,18 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
         self._power_entity = entry.data.get(CONF_POWER_ENTITY) or None
         self._bus_log_ever_on = False
 
+    def handle_push(self, data: dict) -> None:
+        """Callback pro push z klienta (0x90/0x82/0x7A/A5/...).
+
+        Standby report je při přepnutí vstupu přechodný/fake (na OPT/AUX/
+        USB/BT soundbar hraje, i když CEC hlásí standby) — publikujeme,
+        ale hned pustíme verifikační refresh (single-flight: slučuje se
+        se scheduled refreshem), aby se stav rychle opravil.
+        """
+        self.async_set_updated_data(data)
+        if data.get("power") in ("standby", "turning_off"):
+            self.hass.async_create_task(self.async_refresh())
+
     async def _async_update_data(self) -> dict:
         try:
             if not self.client.rx_capable:

@@ -50,8 +50,16 @@ class PowerSwitch(AxEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {}
         power = self.sb_data.get("power")
-        return {"power_status": power} if power else {}
+        if power:
+            attrs["power_status"] = power
+        # raw CEC Report Power Status — na ne-CEC vstupech (OPT/AUX/USB/BT)
+        # zůstává standby, i když soundbar hraje (proto power_status = on)
+        cec = self.sb_data.get("cec_power")
+        if cec:
+            attrs["cec_power_status"] = cec
+        return attrs
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         try:
