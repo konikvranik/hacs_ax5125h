@@ -466,16 +466,16 @@ class EzplayClient:
         self.data["input"] = which
 
     async def async_power_on(self) -> None:
-        """Zapne soundbar: UCP Power On (0x6D press/release).
-
-        Jediný dvakrát živě ověřený wake z hlubokého standby (research-log
-        #14; bar odpoví 72:01 SAM on broadcastem). Verifikace je PASIVNÍ —
-        žádné další dotazy (dotaz by právě probuzený/uspávaný bar držel
-        vzhůru): pokud do 8 s nepřijde žádný spontánní rámec (72:01/7A/…),
-        probuzení se nepovedlo a stav se poctivě vrací na standby. Přijde-li
-        90:01, stav si opraví event handler sám.
+        """Zapne soundbar: SAM-terminate (odlepení ze zaseknutého SAM-on
+        stavu — živě ověřeno #15: uvízl-li bar s SAM on, TV s ním jede ARC
+        handshake smyčku každých ~5 s a nepustí ho do BYE) + UCP Power On
+        (0x6D press/release) — jediný dvakrát ověřený wake z hlubokého
+        standby. Verifikace je PASIVNÍ — žádné další dotazy: pokud do 8 s
+        nepřijde žádný spontánní rámec (72:01/7A/…), probuzení se nepovedlo
+        a stav se poctivě vrací na standby.
         """
         before_activity = self.data.get("last_activity", 0.0)
+        await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
         await self._send(
             self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
         )
@@ -498,12 +498,12 @@ class EzplayClient:
         self._notify()
 
     async def async_power_off(self) -> None:
-        """Převede soundbar do standby (CEC 0x36 Standby).
-
-        Optimisticky standby; integrace hned utlumí veškerý provoz směrem k
-        baru (coordinator _adapt_polling → silent mód), aby mohl projít BYE
-        do hlubokého spánku."""
+        """Převede soundbar do standby: SAM Request terminate (uvolní ARC/SAM
+        stav — jinak TV s barem jede ARC handshake smyčku a nepustí ho do
+        BYE/deep, #15) + CEC 0x36 Standby. Optimisticky standby; integrace
+        hned utlumí veškerý provoz směrem k baru (silent mód)."""
         self.data["last_activity"] = time.time()
+        await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
         self.data["power"] = "standby"
         self._notify()

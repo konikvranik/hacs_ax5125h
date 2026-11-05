@@ -421,9 +421,11 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        self.assertEqual(t.sent[0], (0, SB, [0x44, 0x6D]))
-        self.assertEqual(t.sent[1], (0, SB, [0x45, 0x6D]))
-        self.assertEqual(len(t.sent), 2)               # žádný traffic navíc
+        # SAM terminate (odlepení ze zaseknutého stavu) + UCP pár
+        self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
+        self.assertEqual(t.sent[1], (0, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
+        self.assertEqual(len(t.sent), 3)               # žádný traffic navíc
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "arc")
 
@@ -435,7 +437,7 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(c.data["power"], "standby")
-        self.assertEqual(len(t.sent), 2)               # jen UCP pár
+        self.assertEqual(len(t.sent), 3)               # SAM term. + UCP pár
 
     async def test_power_on_rx_less(self):
         """rx-less transport: jen UCP pár, optimisticky on."""
@@ -444,7 +446,8 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        self.assertEqual(t.sent, [(0, SB, [0x44, 0x6D]),
+        self.assertEqual(t.sent, [(0, SB, [0x70, 0x00, 0x00]),
+                                  (0, SB, [0x44, 0x6D]),
                                   (0, SB, [0x45, 0x6D])])
         self.assertEqual(c.data["power"], "on")
 
@@ -467,7 +470,9 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         t = FakeTransport()
         c = make_client(t)
         await c.async_power_off()
-        self.assertEqual(t.sent[0], (0, SB, [0x36]))
+        # SAM terminate (uvolní ARC handshake smyčku, #15) + Standby
+        self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
+        self.assertEqual(t.sent[1], (0, SB, [0x36]))
         self.assertEqual(c.data["power"], "standby")
 
     async def test_set_mute(self):
