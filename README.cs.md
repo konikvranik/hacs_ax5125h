@@ -123,16 +123,14 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
 ## Zapnutí / vypnutí a stav napájení (0.5.0 — živě ověřeno)
 
 - **VYP** = CEC `<Standby>` (0x36), funguje spolehlivě.
-- **ZAP** = **`Set Stream Path` + `Active Source` broadcast mířící na port
-  ZA soundbarem** (HDMI IN, např. `0;F;0x86,0x31,0x00` +
-  `0xE;0xF;0x82,0x31,0x00`). Set Stream Path je jediný rámec ověřený jako
-  wake z **hlubokého standby** (zhasnutá LED, živě); Active Source je druhá
-  půlka Kodi/TV probuzení. UCP Power On (0x6D), SAM Request (0x70) i Set
-  System Audio Mode (0x72) ve tmě ignoruje. Po odeslání se výsledek
-  **verifikuje** pollem audio statusu (unmute = probuzeno); když bar stále
-  hlásí mute, zapnutí se nepovedlo a stav se poctivě vrátí na *standby*
-  (žádné zaseknuté optimistické *on*). Vedlejší efekt: bar se probudí na
-  vstupu HDMI IN.
+- **ZAP** = **UCP Power On** (`0x44 0x6D` + `0x45 0x6D`) — jediný rámec
+  živě ověřený jako wake z **hlubokého standby** (zhasnutá LED; dvakrát
+  ověřeno: bar odpoví SAM-on broadcastem + unmute). Set Stream Path, Active
+  Source, IVO ani SAM rámce ho nezobudí (sweepem ověřené ticho). Výsledek
+  se **verifikuje** pollem audio statusu (unmute = probuzeno); když mute
+  přetrvává, jde fallback Set Stream Path + Active Source (zkus měkkou
+  fázi), a pokud nic nezabere, stav se poctivě vrátí na *standby*
+  (žádné zaseknuté optimistické *on*).
 - **Stav napájení**: CEC `Report Power Status` (0x8F) je na tomto zařízení
   **k ničemu** — hlásí `On` vždy. Jediný stavový signál je **mute bit** v
   `Report Audio Status` (0x71→0x7A), vyhodnocovaný kontextově: spontánní

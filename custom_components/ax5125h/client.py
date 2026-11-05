@@ -41,6 +41,18 @@ RTVR_RETRY_MIN = 300.0
 #: push (bar zase žije).
 SOFT_STANDBY_WINDOW = 360.0
 
+#: Opkody, které jsou odpověďmi na CIZÍ poll (Give Power Status/Physical
+#: Address/Vendor ID/OSD Name) — aktivitou uživatele NEJSOU. Soundbar na
+#: ně odpovídá rámově (gateway/TV pinguje pravidelně), a kdyby obnovovaly
+#: last_activity, rychlý vendor poll by se nikdy neuvolnil a bar by se
+#: nedostal do hlubokého standby (bug 0.6.1).
+_ACTIVITY_NOISE = frozenset({
+    ez.OP_REPORT_POWER_STATUS,   # 0x90 — odpovědi na 0x8F heartbeat poll
+    0x84,                        # Report Physical Address (odpověď na 0x83)
+    ez.OP_DEVICE_VENDOR_ID,      # 0x87 — odpověď na 0x8C
+    0x47,                        # Set OSD Name (odpověď na 0x46)
+})
+
 
 class EzplayError(Exception):
     """Základní chyba protokolu."""
@@ -205,9 +217,12 @@ class EzplayClient:
             if self.rx_capable:
                 asyncio.create_task(self._send_give_audio_status())
 
-        if not self._resolve_pending(payload) and src == self._sb_addr:
-            # spontánní rámec ze soundbaru (ne odpověď na náš dotaz) =
-            # aktivita uživatele → pustíme rychlý polling
+        if not self._resolve_pending(payload) and src == self._sb_addr \
+                and opcode not in _ACTIVITY_NOISE:
+            # spontánní rámec ze soundbaru = aktivita uživatele → rychlý
+            # polling. ALE: odpovědi na cizí poll ne (gateway pinguje 0x8F
+            # každých 5 s → flood 90:00 by aktivní mód nikdy neuvolnil a
+            # rychlý vendor poll by baru zabránil zhluboka spát — bug 0.6.1)
             self.data["last_activity"] = time.time()
         if opcode in (ez.OP_EZPLAY, ez.OP_REPORT_POWER_STATUS,
                       ez.OP_REPORT_AUDIO_STATUS, ez.OP_ACTIVE_SOURCE,
@@ -499,24 +514,24 @@ class EzplayClient:
         self.data["input"] = which
 
     async def async_power_on(self) -> None:
-        """Zapne soundbar: Set Stream Path + Active Source broadcast na
-        HDMI IN port, s verifikací a poctivým revertem.
+        """Zapne soundbar: UCP Power On (0x6D) + verifikace + poctivý revert.
 
-        Živě ověřeno 2026-11-05 (research-log #12): SetStreamPath (0x86)
-        probouzí i z hlubokého standby (LED zhaslá). Active Source (0x82)
-        doplňuje druhou ověřenou cestu — Kodi dance broadcastoval AS těsně
-        před probuzením (měkká fáze). UCP 0x6D, SAM 0x70/0x72 a IVO/TVOn
-        v dark stavu nezabírají (sweeps #12).
-
-        Verify loop (poll 0x71): unmute = probuzeno potvrzeno; pokud bar
-        celou dobu hlásí mute=1, NEzapnul se — optimistické on musíme
-        vrátit na standby, jinak mute-sticky model zamrzne na on
-        (přesně ta zkušenost uživatele „HA hlásí on i když je vypnutý
-        a nejde zapnout").
+        Wake matice (živě, research-log #14): **UCP 0x6D press/release je
+        dvakrát ověřený wake z hlubokého standby** (bar odpoví 72:01 SAM on
+        + 7A unmute). Set Stream Path i Active Source z hlubokého standby
+        NEZABÍRAJÍ (sweep W1-W5: ticho přes 5 minut stabilního mute=1);
+        z měkké fáze neznám fungující rámec žádný. Po odeslání verifikujeme
+        poll 0x71 (unmute = probuzeno); když mute přetrvává, zkusíme ještě
+        SP+AS, a pokud ani pak nic, stav se poctivě vrací na standby.
         """
         self.data["last_activity"] = time.time()
-        await self._send(self._tv_addr, 0xF, ez.set_stream_path_frame(self._hdmi_pa))
-        await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+        await self._send(
+            self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
+        )
+        await asyncio.sleep(0.15)
+        await self._send(
+            self._tv_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
+        )
         self.data["power"] = "on"
         self.data["power_suppress_until"] = 0.0
         self._notify()
@@ -525,10 +540,9 @@ class EzplayClient:
         woke = False
         for attempt in range(4):
             await asyncio.sleep(2.5)
-            if attempt:
-                # retry: přepošleme oba wake rámce (zatím nevíme, ze kterého
-                # standby fáze na který rámec reaguje — SP ověřen z deep,
-                # AS z měkké fáze / Kodi dance)
+            if attempt == 1:
+                # druhá fáze: SP+AS (zkus i měkkou cestu; z deep neškodí —
+                # sweep: ticho)
                 await self._send(self._tv_addr, 0xF,
                                  ez.set_stream_path_frame(self._hdmi_pa))
                 await self._send(self._gw_addr, 0xF,

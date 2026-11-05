@@ -126,16 +126,14 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 ## Power ON/OFF and power state (0.5.0 — live-verified)
 
 - **OFF** = CEC `<Standby>` (0x36), works reliably.
-- **ON** = **`Set Stream Path` + `Active Source` broadcast targeting the
-  port BEHIND the soundbar** (HDMI IN, e.g. `0;F;0x86,0x31,0x00` +
-  `0xE;0xF;0x82,0x31,0x00`). Set Stream Path is the only frame verified to
-  wake the bar from **deep standby** (red LED off, live-verified); Active
-  Source is the other half of the Kodi/TV wake dance. UCP Power On (0x6D),
-  SAM Request (0x70) and Set System Audio Mode (0x72) are all ignored while
-  dark. After sending, the result is **verified** by polling the audio
-  status (unmute = awake); if the bar still reports mute, the wake failed
-  and the state honestly reverts to *standby* (no stuck optimistic *on*).
-  Side effect: the bar wakes on its HDMI IN input.
+- **ON** = **UCP Power On** (`0x44 0x6D` + `0x45 0x6D`) — the only frame
+  live-verified to wake the bar from **deep standby** (red LED off; twice
+  verified: the bar answers with a SAM-on broadcast + unmute). Set Stream
+  Path, Active Source, IVO and SAM frames do **not** wake it (sweep-verified
+  silence). The result is **verified** by polling the audio status (unmute =
+  awake); if mute persists, a Set Stream Path + Active Source fallback is
+  sent (soft-phase attempt), and if nothing works the state honestly
+  reverts to *standby* (no stuck optimistic *on*).
 - **Power state**: the CEC `Report Power Status` (0x8F) is **useless on this
   device** — it reports `On` in every state. The only state signal is the
   **mute bit** of `Report Audio Status` (0x71→0x7A), evaluated in context:

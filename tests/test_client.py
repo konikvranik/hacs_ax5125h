@@ -191,6 +191,13 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         c.data["last_activity"] = 0.0
         await c.async_set_volume(10)                  # HA příkaz
         self.assertGreater(c.data["last_activity"], 0.0)
+        # odpovědi na cizí poll (gateway ping 0x8F → 90:00 flood každých 5 s)
+        # aktivitou NEJSOU — jinak by rychlý poll nikdy neuvolnil (bug 0.6.1)
+        c.data["last_activity"] = 0.0
+        c._handle_frame(SB, 0, [0x90, 0x00])
+        self.assertEqual(c.data["last_activity"], 0.0)
+        c._handle_frame(SB, 15, [0x84, 0x30, 0x00, 0x05])
+        self.assertEqual(c.data["last_activity"], 0.0)
 
 
 class TestWrites(unittest.IsolatedAsyncioTestCase):
@@ -492,15 +499,13 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        # první pár: SP (TV, broadcast) + AS (gateway, broadcast)
-        self.assertEqual(t.sent[0], (0, 0xF, [0x86, 0x31, 0x00]))
-        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
-        # probuzení potvrzeno v prvním cyklu → žádný retry
-        sps = [p for p in t.sent if p[2][0] == 0x86]
-        self.assertEqual(len(sps), 1)
+        # první pár: UCP Power On press/release (živě ověřený deep wake)
+        self.assertEqual(t.sent[0], (0, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[1], (0, SB, [0x45, 0x6D]))
+        # probuzení potvrzeno v prvním cyklu → SP/AS retry neproběhl
+        self.assertNotIn(0x86, [p[2][0] for p in t.sent])
         self.assertEqual(c.data["power"], "on")
         self.assertFalse(c.data["mute"])
-        self.assertFalse(any(p[2][0] in (0x70, 0x44, 0x45) for p in t.sent))
 
     async def test_power_on_failed_reverts_to_standby(self):
         """Probuzení se nepovedlo (0x71 stále mute) → optimistické on se
@@ -516,6 +521,9 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         await c.async_power_on()
         self.assertEqual(c.data["power"], "standby")
         self.assertTrue(c.data["mute"])
+        # fallback fáze poslala i SP+AS (pokus z měkké cesty)
+        self.assertIn(0x86, [p[2][0] for p in t.sent])
+        self.assertIn(0x82, [p[2][0] for p in t.sent])
 
     async def test_power_on_rx_less(self):
         """rx-less transport: oba wake rámce, žádný verify loop."""
@@ -524,10 +532,8 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        self.assertEqual(
-            t.sent,
-            [(0, 0xF, [0x86, 0x31, 0x00]), (GW, 0xF, [0x82, 0x31, 0x00])],
-        )
+        self.assertEqual(t.sent[:2], [(0, SB, [0x44, 0x6D]),
+                                      (0, SB, [0x45, 0x6D])])
         self.assertEqual(c.data["power"], "on")
 
     async def test_source_pressed_cycles_inputs(self):
