@@ -16,7 +16,7 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
 | Bass / Výšky | number (posuvník) | −5 … +5 | ✅ |
 | Surround | select | **PURE / PRO / VYPNUTO** (tri-state čtení i zápis přes Roku RTVR — EZPlay item2 je jen binární) | ✅ |
-| Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
+| Jas displeje (dimmer) | number (posuvník) | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
 | Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Hlasitost | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
 | Mute | switch | stav ztlumení (čtení z 0x7A + UCP 0x43 přepínání) | ✅ |

@@ -1,4 +1,4 @@
-"""Select entity: EQ, Surround (tri-state přes RTVR), Dimmer, vstup."""
+"""Select entity: EQ, Surround (tri-state přes RTVR), vstup."""
 
 from __future__ import annotations
 
@@ -45,7 +45,6 @@ async def async_setup_entry(
         [
             EqSelect(coordinator),
             SurroundSelect(coordinator),
-            DimmerSelect(coordinator),
             InputSelect(coordinator),
         ]
     )
@@ -108,33 +107,6 @@ class SurroundSelect(_BaseSelect):
                 f"surround mód {option} se nepodařilo zapsat přes RTVR "
                 "(session nedorazila) — zkus znovu / reload integrace"
             )
-        self.coordinator.async_update_listeners()
-
-
-class DimmerSelect(_BaseSelect):
-    """Jas displeje: menu 0–3, A2 SET raw menu hodnotou.
-
-    Wire (A1/A5) clampne na 0–2 — po zápisu 3 čte zpětně 2 (limit FW
-    builderu, displej 3 ukáže). Auto-dim displeje = 0.
-    """
-
-    _attr_icon = "mdi:brightness-6"
-
-    def __init__(self, coordinator: SoundbarCoordinator) -> None:
-        super().__init__(coordinator, "dimmer", ("0", "1", "2", "3"))
-
-    @property
-    def current_option(self) -> str | None:
-        value = self.sb_data.get("dimmer")
-        if value is None:
-            return None
-        return str(min(value, 3))
-
-    async def async_select_option(self, option: str) -> None:
-        try:
-            await self.coordinator.client.async_set_dimmer(int(option))
-        except (EzplayError, TransportError) as exc:
-            raise HomeAssistantError(str(exc)) from exc
         self.coordinator.async_update_listeners()
 
 

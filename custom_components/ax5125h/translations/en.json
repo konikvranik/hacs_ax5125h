@@ -94,9 +94,6 @@
           "OFF": "Off"
         }
       },
-      "dimmer": {
-        "name": "Display brightness"
-      },
       "input": {
         "name": "Input",
         "state": {
@@ -115,6 +112,9 @@
       },
       "treble": {
         "name": "Treble"
+      },
+      "dimmer": {
+        "name": "Display brightness"
       }
     },
     "sensor": {

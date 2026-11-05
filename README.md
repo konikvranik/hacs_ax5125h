@@ -17,7 +17,7 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
 | Bass / Treble | number (slider) | −5 … +5 | ✅ |
 | Surround | select | **PURE / PRO / OFF** (tri-state read & written via Roku RTVR — EZPlay item2 is binary-only) | ✅ |
-| Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
+| Display brightness (dimmer) | number (slider) | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
 | Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Volume | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request activation + auto-query on UCP) | ✅ |
 | Mute | switch | mute state (read via 0x7A + UCP 0x43 toggling) | ✅ |

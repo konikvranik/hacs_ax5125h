@@ -1,4 +1,4 @@
-"""Number entity: BASS a TREBLE (-5..+5)."""
+"""Number entity: BASS/TREBLE (−5..+5) a jas displeje (0–3), všechny slider."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ async def async_setup_entry(
 ) -> None:
     coordinator: SoundbarCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
-        [BassNumber(coordinator), TrebleNumber(coordinator)]
+        [BassNumber(coordinator), TrebleNumber(coordinator), DimmerNumber(coordinator)]
     )
 
 
@@ -77,3 +77,34 @@ class TrebleNumber(_AxNumber):
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, "treble", ITEM_TREBLE)
+
+
+class DimmerNumber(AxEntity, NumberEntity):
+    """Jas displeje 0–3 jako slider (od 0.4.1; dřív select).
+
+    A2 SET raw menu hodnotou; wire (A1/A5) clampne na 0–2 — po zápisu 3
+    čte zpětně 2 (limit FW builderu, displej 3 ukáže). Auto-dim displeje = 0.
+    """
+
+    _attr_native_min_value = 0
+    _attr_native_max_value = 3
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+    _attr_icon = "mdi:brightness-6"
+
+    def __init__(self, coordinator: SoundbarCoordinator) -> None:
+        super().__init__(coordinator, translation_key="dimmer")
+
+    @property
+    def native_value(self) -> float | None:
+        value = self.sb_data.get("dimmer")
+        if value is None:
+            return None
+        return float(min(value, 3))
+
+    async def async_set_native_value(self, value: float) -> None:
+        try:
+            await self.coordinator.client.async_set_dimmer(int(value))
+        except (EzplayError, TransportError) as exc:
+            raise HomeAssistantError(str(exc)) from exc
+        self.coordinator.async_update_listeners()
