@@ -19,6 +19,22 @@ _LOGGER = logging.getLogger(__name__)
 #: Vendor session (spoof TV vendor ID) vydrží ~60 s — obnovujeme po 40 s.
 SPOOF_TTL = 40.0
 
+#: Roku RTVR (Roku TV Ready) — vendor ID + subopcody (docs protocol-rtvr.md)
+ROKU_OUI = (0x8A, 0xC7, 0x2E)
+RTVR_ANNOUNCE_PRESENCE = 0x10
+RTVR_INIT_SESSION = 0x11
+RTVR_ACCEPT_SESSION = 0x12
+RTVR_SET_STATE = 0x30
+RTVR_REPORT_STATE = 0x31
+RTVR_FSID = 0x5D
+#: RTVR opt1 = SURROUND tri-state: 0=PURE, 1=PRO, 2=OFF (EZPlay item2 je
+#: jen binární flag — jediná cesta k módu je RTVR poll/zápis)
+RTVR_SURR_PURE = 0
+RTVR_SURR_PRO = 1
+RTVR_SURR_OFF = 2
+#: Po neúspěšném RTVR handshake opakovat nejdřív za (s):
+RTVR_RETRY_MIN = 300.0
+
 
 class EzplayError(Exception):
     """Základní chyba protokolu."""
@@ -63,6 +79,9 @@ class EzplayClient:
         self._pending: list[_Pending] = []
         self._last_spoof: float | None = None
         self._support_queried = False
+        #: RTVR (Roku) session — jen surround tri-state (PURE/PRO/OFF)
+        self._rtvr_ok = False
+        self._rtvr_last_attempt = 0.0
         #: Transport nedodává rx (hdmi_cec integrace)? Pak vendor zápisy jen
         #: optimistické a refresh neposílá dotazy (žádné timeouty).
         self.rx_capable = bool(getattr(transport, "supports_rx", True))
@@ -71,6 +90,7 @@ class EzplayClient:
         self.t_params = 2.5   # A0 -> A1
         self.t_item = 2.0     # A2 -> A4
         self.t_support = 2.0  # 0x90 -> 0x91
+        self.t_rtvr = 2.0     # RTVR SetState -> ReportState
         #: Poslední známý stav (aktualizuje se i push zprávami A5/0x82).
         self.data: dict = {}
 
@@ -227,7 +247,13 @@ class EzplayClient:
         if item == ez.ITEM_EQ and 0 <= value < len(ez.EQ_OPTIONS):
             self.data["eq"] = value
         elif item == ez.ITEM_SURROUND:
-            self.data["surr"] = 1 if value else 0    # 0=off, 1=on (bez módu)
+            # binární inform: off → tri-state OFF; on → mód neznámý (RTVR
+            # poll doplní), po OFF předpokládáme poslední známý mód
+            if value:
+                if self.data.get("surr") == 2:
+                    self.data["surr"] = 0
+            else:
+                self.data["surr"] = 2
         elif item == ez.ITEM_DIMMER:
             self.data["dimmer"] = min(value, 3)      # menu 0–3
         elif item in (ez.ITEM_BASS, ez.ITEM_TREBLE):
@@ -322,6 +348,12 @@ class EzplayClient:
         if not self._support_queried:
             self._support_queried = True
             await self.async_get_support_features()
+
+        # RTVR poll (surround tri-state PURE/PRO/OFF) — nikdy nerozbíjí
+        # hlavní refresh (při mrtvé session handshake max 1×/5 min)
+        surr = await self.rtvr_poll()
+        if surr is not None:
+            self.data["surr"] = surr
 
         self.data["last_seen"] = time.time()
         return self.data
@@ -420,17 +452,111 @@ class EzplayClient:
         self.data["power"] = "standby"
         self._notify()
 
-    async def async_set_surround(self, on: bool) -> None:
-        """Surround on/off přes item2. POZOR: A2 SET má posun o 1 —
-        off=1, on=2 (živě ověřeno: val 3 je odmítnuto, val 2 → on).
-        Módy PURE/PRO se přes EZPlay nerozlišují ani nezapisují."""
-        await self.async_set_item(ez.ITEM_SURROUND, 2 if on else 1)
-        self.data["surr"] = 1 if on else 0
-        self._notify()
-
     async def async_set_dimmer(self, menu: int) -> None:
         """Jas displeje: menu 0–3 (raw zápis; wire clampne na 0–2)."""
         await self.async_set_item(ez.ITEM_DIMMER, max(0, min(3, int(menu))))
+
+    # -- RTVR (Roku TV Ready) — surround tri-state PURE/PRO/OFF --------------
+    @staticmethod
+    def _is_rtvr_frame(payload: list[int], sub: int) -> bool:
+        return (len(payload) >= 6 and payload[0] == ez.OP_EZPLAY
+                and tuple(payload[1:4]) == ROKU_OUI and payload[4] == sub)
+
+    async def rtvr_handshake(self) -> bool:
+        """RTVR handshake (docs protocol-rtvr.md): spoof Roku vendor,
+        AnnouncePresence v3.0, InitSession, AcceptSession.
+
+        Side-efekt: zařízení aplikuje uložené defaulty (pozorováno —
+        viz limits-neural-virtual.md); běží 1× při startu session.
+        """
+        self._last_spoof = None   # další EZPlay dotaz udělá čerstvý spoof
+        await self._send(self._tv_addr, 0xF,
+                         [ez.OP_DEVICE_VENDOR_ID, *ROKU_OUI])
+        await asyncio.sleep(0.3)
+        announce = [ez.OP_EZPLAY, *ROKU_OUI, RTVR_ANNOUNCE_PRESENCE, 0x30]
+        await self._send(self._tv_addr, 0xF, announce)
+        init = await self._request(
+            self._tv_addr, self._sb_addr, announce,
+            lambda p: (self._is_rtvr_frame(p, RTVR_INIT_SESSION)
+                       and len(p) >= 8),
+            self.t_rtvr,
+        )
+        if init is None:
+            _LOGGER.debug("RTVR InitSession nedorazila")
+            return False
+        # AcceptSession: verze 0x30 + 9 bajtů serial (obsah nekritický)
+        await self._send(self._tv_addr, self._sb_addr,
+                         [ez.OP_EZPLAY, *ROKU_OUI, RTVR_ACCEPT_SESSION,
+                          0x30, 0x52, 0x4F, 0x4B, 0x55, 0x54, 0x56, 0x48,
+                          0x41, 0x00])
+        await asyncio.sleep(0.3)
+        return True
+
+    async def rtvr_poll(self) -> int | None:
+        """RTVR poll → surround tri-state (0=PURE, 1=PRO, 2=OFF) | None.
+
+        Mrtvá session → handshake (max 1× za RTVR_RETRY_MIN), pak znovu.
+        """
+        if not self.rx_capable:
+            return None
+        now = time.monotonic()
+        if not self._rtvr_ok:
+            if now - self._rtvr_last_attempt < RTVR_RETRY_MIN:
+                return None
+            self._rtvr_last_attempt = now
+            if not await self.rtvr_handshake():
+                return None
+            self._rtvr_ok = True
+        r = await self._request(
+            self._tv_addr, self._sb_addr,
+            [ez.OP_EZPLAY, *ROKU_OUI, RTVR_SET_STATE],
+            lambda p: (self._is_rtvr_frame(p, RTVR_REPORT_STATE)
+                       and len(p) >= 9),
+            self.t_rtvr,
+        )
+        if r is None:
+            self._rtvr_ok = False   # session zanikla → příště handshake
+            return None
+        opts = (r[6] >> 4, r[6] & 0xF, r[7] >> 4, r[7] & 0xF,
+                r[8] >> 4, r[8] & 0xF)
+        surr = opts[1]
+        if surr in (0, 1, 2):
+            self.data["surr"] = surr
+        return surr if surr in (0, 1, 2) else None
+
+    async def rtvr_set_surr(self, mode: int) -> bool:
+        """Zápis surround módu přes RTVR SetState (0=PURE, 1=PRO, 2=OFF).
+
+        Vrací True, když potvrzený ReportState nese zapsanou hodnotu.
+        """
+        if mode not in (0, 1, 2):
+            raise ValueError(f"neznámý surround mód: {mode}")
+        if not self.rx_capable:
+            return False
+        now = time.monotonic()
+        if not self._rtvr_ok:
+            if now - self._rtvr_last_attempt < RTVR_RETRY_MIN:
+                return False
+            self._rtvr_last_attempt = now
+            if not await self.rtvr_handshake():
+                return False
+            self._rtvr_ok = True
+        r = await self._request(
+            self._tv_addr, self._sb_addr,
+            [ez.OP_EZPLAY, *ROKU_OUI, RTVR_SET_STATE, RTVR_FSID,
+             0xF0 | mode, 0xFF, 0xFF],
+            lambda p: (self._is_rtvr_frame(p, RTVR_REPORT_STATE)
+                       and len(p) >= 9),
+            self.t_rtvr,
+        )
+        if r is None:
+            self._rtvr_ok = False
+            return False
+        surr = r[6] & 0xF   # opt1 = low nible prvního option bajtu
+        if surr in (0, 1, 2):
+            self.data["surr"] = surr
+            self._notify()
+        return surr == mode
 
     async def async_source_pressed(self) -> str:
         """IR SOURCE stisk — posune vstupní cyklus (optimistický tracking).

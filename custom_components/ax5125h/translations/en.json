@@ -89,8 +89,9 @@
       "surround": {
         "name": "Surround",
         "state": {
-          "OFF": "Off",
-          "ON": "On"
+          "PURE": "Pure",
+          "PRO": "Pro",
+          "OFF": "Off"
         }
       },
       "dimmer": {

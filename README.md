@@ -15,8 +15,8 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 | Entity | Type | Range | Verified live |
 |---|---|---|---|
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
-| Bass / Treble | number | −5 … +5 | ✅ |
-| Surround | select | OFF / ON (PURE vs PRO nelze přes EZPlay rozlišit/zapsat — jen IR nebo RTVR) | ✅ |
+| Bass / Treble | number (slider) | −5 … +5 | ✅ |
+| Surround | select | **PURE / PRO / OFF** (tri-state read & written via Roku RTVR — EZPlay item2 is binary-only) | ✅ |
 | Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
 | Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Volume | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request activation + auto-query on UCP) | ✅ |
@@ -132,7 +132,14 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   CEC frames at all — their state is tracked by counting IR SOURCE presses
   (cycle ARC→HDMI→OPT→AUX→USB→BT): call the `source_pressed` service from an
   automation triggered by your IR receiver. Selecting those inputs in the
-  UI raises (CEC cannot switch to them).
+  UI is a **declaration** (the state is recorded and survives restarts, no
+  CEC frame goes out — the device cannot be switched there remotely); ARC
+  and HDMI are switched via real CEC commands.
+- Surround mode: the EZPlay layer only carries an on/off flag; the PURE / PRO
+  distinction is read and written through the **Roku RTVR** protocol
+  (`SetState`/`ReportState`, option 1). The integration impersonates the Roku
+  TV for the handshake; without RTVR support the select keeps the EZPlay
+  on/off fallback.
 - Volume is relative only (UCP ± / mute) plus the 0x7A readout; the EZPlay
   `AC Set_Volume` opcode has an unverified value format and is deliberately
   unused.

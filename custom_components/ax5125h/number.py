@@ -39,7 +39,7 @@ class _AxNumber(AxEntity, NumberEntity):
     _attr_native_min_value = BASS_TREBLE_MIN
     _attr_native_max_value = BASS_TREBLE_MAX
     _attr_native_step = 1
-    _attr_mode = NumberMode.BOX
+    _attr_mode = NumberMode.SLIDER
 
     def __init__(self, coordinator: SoundbarCoordinator, key: str,
                  item: int) -> None:

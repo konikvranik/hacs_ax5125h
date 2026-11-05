@@ -75,7 +75,7 @@
   "entity": {
     "select": {
       "eq": { "name": "EQ", "state": { "MUSIC": "Music", "MOVIE": "Movie", "NEWS": "News", "SPORT": "Sport", "NIGHT": "Night", "GAME": "Game", "AI EQ": "AI EQ" } },
-      "surround": { "name": "Surround", "state": { "OFF": "Off", "ON": "On" } },
+      "surround": { "name": "Surround", "state": { "PURE": "Pure", "PRO": "Pro", "OFF": "Off" } },
       "dimmer": { "name": "Display brightness" },
       "input": { "name": "Input", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN", "OPTICAL": "Optical", "AUX": "AUX", "USB": "USB", "BT": "Bluetooth" } }
     },

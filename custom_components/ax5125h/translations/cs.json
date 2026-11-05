@@ -75,7 +75,7 @@
   "entity": {
     "select": {
       "eq": { "name": "EQ", "state": { "MUSIC": "Hudba", "MOVIE": "Film", "NEWS": "Zprávy", "SPORT": "Sport", "NIGHT": "Noc", "GAME": "Hra", "AI EQ": "AI EQ" } },
-      "surround": { "name": "Surround", "state": { "OFF": "Vypnuto", "ON": "Zapnuto" } },
+      "surround": { "name": "Surround", "state": { "PURE": "Pure", "PRO": "Pro", "OFF": "Vypnuto" } },
       "dimmer": { "name": "Jas displeje" },
       "input": { "name": "Vstup", "state": { "ARC": "ARC (TV/eARC)", "HDMI": "HDMI IN", "OPTICAL": "Optický", "AUX": "AUX", "USB": "USB", "BT": "Bluetooth" } }
     },

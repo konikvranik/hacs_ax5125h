@@ -14,8 +14,8 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 | Entita | Typ | Rozsah | Živě ověřeno |
 |---|---|---|---|
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
-| Bass / Výšky | number | −5 … +5 | ✅ |
-| Surround | select | OFF / ZAPNUTO (PURE vs PRO nelze přes EZPlay rozlišit/zapsat — jen IR nebo RTVR) | ✅ |
+| Bass / Výšky | number (posuvník) | −5 … +5 | ✅ |
+| Surround | select | **PURE / PRO / VYPNUTO** (tri-state čtení i zápis přes Roku RTVR — EZPlay item2 je jen binární) | ✅ |
 | Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
 | Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Hlasitost | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
@@ -127,8 +127,14 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   Routing Change/Active Source/Set Stream Path). OPT/AUX/USB/BT na CEC
   **nevysílají vůbec nic** — jejich stav se drží počítáním IR SOURCE
   stisků (cyklus ARC→HDMI→OPT→AUX→USB→BT): volej službu `source_pressed`
-  z automatizace spouštěné IR přijímačem. Výběr těchto vstupů v UI skončí
-  chybou (CEC na ně přepnout neumí).
+  z automatizace spouštěné IR přijímačem. Výběr těchto vstupů v UI je
+  **deklarace** (stav se zapamatuje a přežije restart, žádný CEC rámec
+  neodchází — na tyto vstupy nelze přepnout dálkově); ARC a HDMI se přepínají
+  skutečnými CEC příkazy.
+- Surround mód: EZPlay vrstva nese jen on/off flag; rozlišení PURE / PRO se
+  čte i zapisuje přes protokol **Roku RTVR** (`SetState`/`ReportState`,
+  option 1). Integrace se pro handshake vydává za Roku TV; bez RTVR podpory
+  zůstává select na EZPlay on/off fallbacku.
 - Hlasitost je jen relativní (UCP ± / mute) + čtení 0x7A; EZPlay `AC
   Set_Volume` má neověřený formát hodnoty a záměrně se nepoužívá.
 - Soundbar po rebootu ~30 s ignoruje vendor příkazy (standardní CEC init).

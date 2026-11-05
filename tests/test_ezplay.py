@@ -193,7 +193,7 @@ class TestSafety(unittest.TestCase):
             ez.EQ_OPTIONS,
             ("MUSIC", "MOVIE", "NEWS", "SPORT", "NIGHT", "GAME", "AI EQ"),
         )
-        # item2 = binární on/off (PURE vs PRO EZPlay nerozlišuje)
+        # item2 = binární on/off na EZPlay wire; tri-state mód dá jen RTVR
         self.assertEqual(ez.SURROUND_OPTIONS, ("OFF", "ON"))
 
     def test_encode_bass_treble(self):

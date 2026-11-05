@@ -36,7 +36,7 @@ class FakeTransport(CecTransport):
 
 def make_client(transport, **kw):
     c = EzplayClient(transport, session_delay=0, **kw)
-    c.t_short = c.t_params = c.t_item = c.t_support = 0.05
+    c.t_short = c.t_params = c.t_item = c.t_support = c.t_rtvr = 0.05
     return c
 
 
@@ -78,7 +78,9 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         opcodes = [p[2][0] for p in t.sent]
         self.assertEqual(opcodes[0], 0x8F)
         self.assertIn(0xA0, opcodes)
-        spoofs = [p for p in t.sent if p[2][:1] == [0x87]]
+        # jen Hisense spoof (Roku spoof z RTVR handshake má OUI 8A:C7:2E)
+        spoofs = [p for p in t.sent
+                  if p[2][:4] == [0x87, 0xA8, 0x82, 0x00]]
         self.assertEqual(len(spoofs), 1)
         self.assertEqual(spoofs[0][0], 0)
         self.assertEqual(spoofs[0][1], 0xF)
@@ -315,11 +317,12 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         # A5 inform: bass −3 v +0x80 kódování (živě: sweep 0x7B(−5)→0x81(+1))
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x03, 0x7D])
         self.assertEqual(c.data["bass"], -3)
-        # A5: surround off/on (item2, binární)
+        # A5: surround off → tri-state OFF (2); on → mód neznámý (poll
+        # doplní) — po OFF předpoklad PURE (0)
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x02, 0x00])
-        self.assertEqual(c.data["surr"], 0)
+        self.assertEqual(c.data["surr"], 2)
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x02, 0x01])
-        self.assertEqual(c.data["surr"], 1)
+        self.assertEqual(c.data["surr"], 0)
         # A5: dimmer menu 2 (item5, raw; wire clamp 0–2)
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x05, 0x02])
         self.assertEqual(c.data["dimmer"], 2)
@@ -331,18 +334,58 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         t = FakeTransport(default_script)
         c = make_client(t)
         await c.async_start()
-        await c.async_set_surround(True)
-        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
-                                              0xA2, 0x02, 0x02]))
-        self.assertEqual(c.data["surr"], 1)
-        await c.async_set_surround(False)
-        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
-                                              0xA2, 0x02, 0x01]))
-        self.assertEqual(c.data["surr"], 0)
         await c.async_set_dimmer(3)
         self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
                                               0xA2, 0x05, 0x03]))
         self.assertEqual(c.data["dimmer"], 3)
+
+    async def test_rtvr_handshake_poll_set(self):
+        """RTVR: handshake (announce→InitSession→AcceptSession), poll
+        ReportState → surr tri-state, SetState zápis opt1."""
+        def rtvr_script(src, dst, payload):
+            if len(payload) >= 5 and payload[0] == 0xA0 \
+                    and tuple(payload[1:4]) == (0x8A, 0xC7, 0x2E):
+                sub = payload[4]
+                if sub == 0x10:   # AnnouncePresence → InitSession
+                    return (SB, 0, [0xA0, 0x8A, 0xC7, 0x2E, 0x11, 0x30,
+                                    0x81, 0x24, 1, 2, 3, 4, 5, 6, 7, 8])
+                if sub == 0x30:   # SetState → ReportState (echo opt1)
+                    # holý poll (len 5) vrací aktuální stav, zápis (len 9)
+                    # s opts (0x5D, 0xF?|mode, …) vrací aplikovanou hodnotu
+                    mode = payload[6] & 0xF if len(payload) >= 7 else 1
+                    return (SB, 0, [0xA0, 0x8A, 0xC7, 0x2E, 0x31, 0x5D,
+                                    0xF0 | mode, 0x55, 0x0F])
+            return None
+
+        t = FakeTransport(rtvr_script)
+        c = make_client(t)
+        await c.async_start()
+        surr = await c.rtvr_poll()
+        self.assertEqual(surr, 1)              # opt1 = 1 → PRO
+        self.assertEqual(c.data["surr"], 1)
+        self.assertTrue(c._rtvr_ok)
+        # handshake proběhl: Roku spoof + AnnouncePresence + AcceptSession
+        subs = [p[2][4] for p in t.sent
+                if len(p[2]) >= 5 and p[2][0] == 0xA0
+                and tuple(p[2][1:4]) == (0x8A, 0xC7, 0x2E)]
+        self.assertIn(0x10, subs)
+        self.assertIn(0x12, subs)
+        # zápis OFF (opt1=2) → ReportState potvrdí
+        ok = await c.rtvr_set_surr(2)
+        self.assertTrue(ok)
+        self.assertEqual(c.data["surr"], 2)
+
+    async def test_rtvr_no_response_suppressed(self):
+        """Bez RTVR odpovědi: handshake selže a 5 min se neopakuje."""
+        t = FakeTransport(None)
+        c = make_client(t)
+        await c.async_start()
+        self.assertIsNone(await c.rtvr_poll())
+        self.assertFalse(c._rtvr_ok)
+        # druhé volání hned po sobě: handshake se neopakuje (throttle)
+        sent_before = len(t.sent)
+        self.assertIsNone(await c.rtvr_poll())
+        self.assertEqual(len(t.sent), sent_before)
 
     async def test_ucp_push_updates_volume(self):
         t = FakeTransport()
