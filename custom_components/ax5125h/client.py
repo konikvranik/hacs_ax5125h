@@ -81,7 +81,10 @@ class EzplayClient:
         self._support_queried = False
         #: RTVR (Roku) session — jen surround tri-state (PURE/PRO/OFF)
         self._rtvr_ok = False
-        self._rtvr_last_attempt = 0.0
+        #: -inf = „ještě nebyl pokus“ — throttle nesmí záviset na tom, jak
+        #: malý je monotonic čas (čerstvě nabootovaný host by první pokus
+        #: s 0.0 potlačil na celých RTVR_RETRY_MIN)
+        self._rtvr_last_attempt = float("-inf")
         #: Transport nedodává rx (hdmi_cec integrace)? Pak vendor zápisy jen
         #: optimistické a refresh neposílá dotazy (žádné timeouty).
         self.rx_capable = bool(getattr(transport, "supports_rx", True))
