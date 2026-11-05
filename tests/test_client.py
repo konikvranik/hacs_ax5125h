@@ -42,7 +42,7 @@ def make_client(transport, **kw):
 
 
 def default_script(src, dst, payload):
-    """Plně responsivní soundbar: on, A1, 0x91, 0x7D."""
+    """Plně responsivní soundbar: on, A1, 0x91, 0x7A."""
     if payload[0] == 0x8F:
         return (SB, 0, [0x90, 0x00])                       # on
     if ez.ezplay_sub(payload) == ez.SUB_GIVE_ALL_PARAMS:
@@ -50,7 +50,7 @@ def default_script(src, dst, payload):
     if ez.ezplay_sub(payload) == ez.SUB_GIVE_SUPPORT_FEATURES:
         return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0x91, 0x9F, 0x06])
     if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
-        return (SB, 0, [0x7D, 0x25])                       # volume 37
+        return (SB, 0, [0x7A, 0x25])                       # volume 37
     if ez.ezplay_sub(payload) == ez.SUB_SET_ITEM_VALUE:
         return (SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA4,
                         payload[5], payload[6]])           # ack echo
@@ -197,6 +197,40 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         # TV interní zdroj -> ARC
         c._handle_frame(0, 0xF, [0x82, 0x00, 0x00])
         self.assertEqual(c.data["input"], "arc")
+
+    async def test_input_anchors(self):
+        """Kotvy vstupu dle živých testů: Routing Change, Set Stream Path,
+        SAM On broadcast i přímá odpověď Active Source adresovaná TV."""
+        t = FakeTransport()
+        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        # Routing Change 5F:80:30:00:31:00 (přechod na HDMI IN)
+        c._handle_frame(SB, 0xF, [0x80, 0x30, 0x00, 0x31, 0x00])
+        self.assertEqual(c.data["input"], "hdmi")
+        # TV Set Stream Path 0F:86:31:00
+        c._handle_frame(0, 0xF, [0x86, 0x31, 0x00])
+        self.assertEqual(c.data["input"], "hdmi")
+        # SAM On broadcast 5F:72:01 -> ARC
+        c._handle_frame(SB, 0xF, [0x72, 0x01])
+        self.assertEqual(c.data["input"], "arc")
+        # SAM Off (72:00) je přechodný — stav nemění
+        c._handle_frame(SB, 0xF, [0x72, 0x00])
+        self.assertEqual(c.data["input"], "arc")
+        # přímá odpověď Active Source na TV (ne broadcast)
+        c._handle_frame(1, 0, [0x82, 0x31, 0x00])
+        self.assertEqual(c.data["input"], "hdmi")
+        self.assertEqual(c.data["active_source"], "3.1.0.0")
+
+    async def test_audio_status_push(self):
+        """Report Audio Status (50:7A) — i nevyžádaný (IR ovladač) —
+        aktualizuje mute i volume."""
+        t = FakeTransport()
+        c = make_client(t)
+        c._handle_frame(SB, 0, [0x7A, 0x80 | 42])
+        self.assertTrue(c.data["mute"])
+        self.assertEqual(c.data["volume"], 42)
+        c._handle_frame(SB, 0, [0x7A, 37])
+        self.assertFalse(c.data["mute"])
+        self.assertEqual(c.data["volume"], 37)
 
     async def test_a5_push_bass_offset_0x7b(self):
         t = FakeTransport()

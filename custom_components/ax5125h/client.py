@@ -141,14 +141,24 @@ class EzplayClient:
             audio = ez.parse_audio_status(payload)
             if audio is not None:
                 self.data["mute"], self.data["volume"] = audio
-        elif opcode == ez.OP_ACTIVE_SOURCE and dst == 0xF:
+        elif opcode == ez.OP_ACTIVE_SOURCE and dst in (0xF, self._tv_addr):
             pa = ez.parse_physical_address(payload)
             if pa:
-                self.data["active_source"] = ez.pa_to_str(pa)
-                if pa == self._hdmi_pa:
-                    self.data["input"] = "hdmi"
-                elif pa == (0x00, 0x00):
-                    self.data["input"] = "arc"
+                self._apply_source_pa(pa)
+        elif opcode == ez.OP_ROUTING_CHANGE and dst == 0xF:
+            pa = ez.parse_routing_change(payload)
+            if pa:
+                self._apply_source_pa(pa)
+        elif opcode == ez.OP_SET_STREAM_PATH and dst == 0xF:
+            pa = ez.parse_physical_address(payload, opcode=ez.OP_SET_STREAM_PATH)
+            if pa:
+                self._apply_source_pa(pa)
+        elif opcode == ez.OP_SET_SYSTEM_AUDIO_MODE and \
+                src == self._sb_addr and dst == 0xF and len(payload) >= 2:
+            # SAM On (5F:72:01) = soundbar se stal TV audio (ARC/eARC);
+            # SAM Off (72:00) je přechodný — stav vstupu nemanipulujeme
+            if payload[1] == 1:
+                self.data["input"] = "arc"
         elif opcode == ez.OP_USER_CONTROL_PRESSED and dst == self._sb_addr and len(payload) >= 2:
             code = payload[1]
             if code == ez.UCP_VOLUME_UP and "volume" in self.data and self.data["volume"] is not None:
@@ -163,6 +173,8 @@ class EzplayClient:
         self._resolve_pending(payload)
         if opcode in (ez.OP_EZPLAY, ez.OP_REPORT_POWER_STATUS,
                       ez.OP_REPORT_AUDIO_STATUS, ez.OP_ACTIVE_SOURCE,
+                      ez.OP_ROUTING_CHANGE, ez.OP_SET_STREAM_PATH,
+                      ez.OP_SET_SYSTEM_AUDIO_MODE,
                       ez.OP_USER_CONTROL_PRESSED):
             self._notify()
 
@@ -171,6 +183,19 @@ class EzplayClient:
             await self._send(self._tv_addr, self._sb_addr, ez.give_audio_status_frame())
         except Exception:
             pass
+
+    def _apply_source_pa(self, pa: tuple[int, int]) -> None:
+        """Active Source / Routing Change / Set Stream Path -> stav vstupu.
+
+        Kotvy dle živých testů (docs soundbar-ax5125h): příchod na HDMI IN
+        nese PA HDMI IN portu (typicky 3.1.0.0), PA 0.0.0.0 = aktivní zdroj
+        je TV samotná (audio jde přes ARC/eARC).
+        """
+        self.data["active_source"] = ez.pa_to_str(pa)
+        if pa == self._hdmi_pa:
+            self.data["input"] = "hdmi"
+        elif pa == (0x00, 0x00):
+            self.data["input"] = "arc"
 
     def _handle_ezplay(self, src: int, payload: list[int]) -> None:
         sub = ez.ezplay_sub(payload)

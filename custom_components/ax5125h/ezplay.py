@@ -22,6 +22,9 @@ from typing import Sequence
 OP_DEVICE_VENDOR_ID = 0x87
 OP_EZPLAY = 0xA0                       # Hisense "Vendor Command With ID"
 OP_SYSTEM_AUDIO_MODE_REQUEST = 0x70
+OP_SET_SYSTEM_AUDIO_MODE = 0x72        # SB broadcast 5F:72:01 = SAM/ARC on
+OP_ROUTING_CHANGE = 0x80               # 5F:80 <old_pa:2> <new_pa:2>
+OP_SET_STREAM_PATH = 0x86              # 0F:86 <pa:2>
 OP_ACTIVE_SOURCE = 0x82
 OP_GIVE_DEVICE_POWER_STATUS = 0x8F
 OP_REPORT_POWER_STATUS = 0x90
@@ -29,7 +32,10 @@ OP_STANDBY = 0x36
 OP_USER_CONTROL_PRESSED = 0x44
 OP_USER_CONTROL_RELEASED = 0x45
 OP_GIVE_AUDIO_STATUS = 0x71
-OP_REPORT_AUDIO_STATUS = 0x7D
+# Odpověď na Give Audio Status je 0x7A (živě: `50:7A:<mute<<7|vol>`).
+# 0x7D je System Audio Mode Status — stará hodnota 0x7D nikdy nedorazila,
+# takže volume/mute zůstávaly navždy unknown.
+OP_REPORT_AUDIO_STATUS = 0x7A
 
 HISENSE_OUI = (0xA8, 0x82, 0x00)
 
@@ -229,11 +235,20 @@ def parse_audio_status(payload: list[int]) -> tuple[bool, int] | None:
     return bool(payload[1] & 0x80), payload[1] & 0x7F
 
 
-def parse_physical_address(payload: list[int]) -> tuple[int, int] | None:
-    """0x82 <pa_hi> <pa_lo> (a další) -> 2bajtová fyzická adresa."""
-    if not payload or payload[0] != OP_ACTIVE_SOURCE or len(payload) < 3:
+def parse_physical_address(
+    payload: list[int], opcode: int = OP_ACTIVE_SOURCE
+) -> tuple[int, int] | None:
+    """0x82 / 0x86 <pa_hi> <pa_lo> -> 2bajtová fyzická adresa."""
+    if not payload or payload[0] != opcode or len(payload) < 3:
         return None
     return payload[1], payload[2]
+
+
+def parse_routing_change(payload: list[int]) -> tuple[int, int] | None:
+    """0x80 <old_pa:2> <new_pa:2> -> nová (cílová) fyzická adresa."""
+    if not payload or payload[0] != OP_ROUTING_CHANGE or len(payload) < 5:
+        return None
+    return payload[3], payload[4]
 
 
 def pa_to_str(pa: tuple[int, int]) -> str:

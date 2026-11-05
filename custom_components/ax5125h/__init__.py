@@ -173,8 +173,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         DATA_COORDINATOR: coordinator,
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_orphaned_entities(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+def _async_remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Smaže registry entity integrace, které už žádná platforma nevytváří.
+
+    Po refaktorech platforem (0.2.6: mute button -> mute switch, power sensor
+    -> power switch) zůstávaly ve starších instalacích osiřelé entity viset
+    jako Nedostupné (duplicitní Mute/Napájení na stránce zařízení). Po načtení
+    platforem mají živé entity vždy stav — registrovaná entita bez stavu je
+    osiřelá. Zakázané entity (disabled_by) neschazujeme, ty stav nemají
+    záměrně.
+    """
+    registry = er.async_get(hass)
+    for reg_entry in list(registry.entities.values()):
+        if reg_entry.config_entry_id != entry.entry_id \
+                or reg_entry.platform != DOMAIN:
+            continue
+        if reg_entry.disabled_by is not None:
+            continue
+        if hass.states.get(reg_entry.entity_id) is None:
+            _LOGGER.info(
+                "mažu osiřelou entitu %s (platforma ji už nevytváří)",
+                reg_entry.entity_id,
+            )
+            registry.async_remove(reg_entry.entity_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

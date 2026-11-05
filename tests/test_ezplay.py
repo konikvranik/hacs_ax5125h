@@ -86,8 +86,19 @@ class TestParsing(unittest.TestCase):
         self.assertIsNone(ez.parse_power_status([0x8F]))
 
     def test_audio_status(self):
-        self.assertEqual(ez.parse_audio_status([0x7D, 0x25]), (False, 37))
-        self.assertEqual(ez.parse_audio_status([0x7D, 0x80]), (True, 0))
+        # odpověď na 71 Give Audio Status = 7A Report Audio Status (živě
+        # `50:7A:<mute<<7|vol>`); 0x7D je System Audio Mode Status!
+        self.assertEqual(ez.parse_audio_status([0x7A, 0x25]), (False, 37))
+        self.assertEqual(ez.parse_audio_status([0x7A, 0x80]), (True, 0))
+        self.assertIsNone(ez.parse_audio_status([0x7D, 0x01]))
+
+    def test_routing_change(self):
+        self.assertEqual(
+            ez.parse_routing_change([0x80, 0x30, 0x00, 0x31, 0x00]),
+            (0x31, 0x00),
+        )
+        # krátký payload (ne 5 bajtů) -> None
+        self.assertIsNone(ez.parse_routing_change([0x80, 0x31, 0x00]))
 
     def test_physical_address(self):
         self.assertEqual(ez.parse_physical_address([0x82, 0x31, 0x00]), (0x31, 0x00))
