@@ -15,7 +15,7 @@ integrace se za TV „vydává“ sama (podvržení vendor ID přes CEC).
 |---|---|---|---|
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
 | Bass / Výšky | number | −5 … +5 | ✅ |
-| Surround | select | PURE / PRO / OFF | ✅ |
+| Surround | select | OFF / ZAPNUTO (PURE vs PRO nelze přes EZPlay rozlišit/zapsat — jen IR nebo RTVR) | ✅ |
 | Jas displeje (dimmer) | select | 0–3 (interně 1–4; 5+ korrumpuje menu — pojistka v integraci) | ✅ |
 | Napájení | switch | zapnutí (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Hlasitost | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request pro aktivaci + auto-query po UCP) | ✅ |
@@ -113,7 +113,9 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
   destruktivní) nelze odeslat ani přes službu `send_raw`
 - holé `A2 <item>` bez hodnoty (není to GET — zapíše garbage) je odmítnuto
 - dimmer zůstává v bezpečném rozsahu 0–3 (5+ korrumpuje menu)
-- bass/treble se zapisují jen v −5…+5 (nibble 11+ u RTVR korrumpuje NVRAM)
+- bass/treble se zapisují v +0x80 kódování (item 3/4); hodnoty mimo rozsah
+  korrumpují NVRAM (opraveno ve 0.3.0 — starší buildy zapisovaly posunutý
+  item; oprava přes RTVR SetState + jednou oficiálně z IR menu)
 
 ## Omezení / poznámky
 

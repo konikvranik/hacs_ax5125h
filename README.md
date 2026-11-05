@@ -16,7 +16,7 @@ original Hisense/Roku TV — the integration impersonates the TV itself
 |---|---|---|---|
 | EQ | select | MUSIC / MOVIE / NEWS / SPORT / NIGHT / GAME / AI EQ | ✅ |
 | Bass / Treble | number | −5 … +5 | ✅ |
-| Surround | select | PURE / PRO / OFF | ✅ |
+| Surround | select | OFF / ON (PURE vs PRO nelze přes EZPlay rozlišit/zapsat — jen IR nebo RTVR) | ✅ |
 | Display brightness (dimmer) | select | 0–3 (internal 1–4; 5+ corrupts the menu — guarded) | ✅ |
 | Power | switch | power on (SAM Request 0x70 + UCP Power On) / standby (CEC 0x36) | ✅ |
 | Volume | sensor | 0–100 % (CEC 0x71→0x7A, auto-SAM request activation + auto-query on UCP) | ✅ |
@@ -117,7 +117,9 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
 - a bare `A2 <item>` without a value (it is not a GET — it writes garbage)
   is rejected
 - dimmer stays within the safe 0–3 range (5+ corrupts the menu)
-- bass/treble are only written within −5…+5 (nibble 11+ corrupts NVRAM via RTVR)
+- bass/treble are written in +0x80 wire encoding (item 3/4); out-of-range
+  writes corrupt NVRAM (fixed in 0.3.0 — earlier builds wrote shifted item
+  ids; repair via RTVR SetState + one official IR change)
 
 ## Limitations / notes
 

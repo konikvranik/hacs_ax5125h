@@ -193,7 +193,16 @@ class TestSafety(unittest.TestCase):
             ez.EQ_OPTIONS,
             ("MUSIC", "MOVIE", "NEWS", "SPORT", "NIGHT", "GAME", "AI EQ"),
         )
-        self.assertEqual(ez.SURROUND_OPTIONS, ("PURE", "PRO", "OFF"))
+        # item2 = binární on/off (PURE vs PRO EZPlay nerozlišuje)
+        self.assertEqual(ez.SURROUND_OPTIONS, ("OFF", "ON"))
+
+    def test_encode_bass_treble(self):
+        # +0x80 kódování (živě: IR bas −3 → wire 0x7D; +1 → 0x81)
+        self.assertEqual(ez.encode_bass_treble(-5), 0x7B)
+        self.assertEqual(ez.encode_bass_treble(-3), 0x7D)
+        self.assertEqual(ez.encode_bass_treble(0), 0x80)
+        self.assertEqual(ez.encode_bass_treble(1), 0x81)
+        self.assertEqual(ez.encode_bass_treble(5), 0x85)
 
 
 if __name__ == "__main__":

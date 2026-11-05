@@ -208,10 +208,9 @@ class EzplayClient:
         elif sub in (ez.SUB_ITEM_REPORT, ez.SUB_ITEM_CHANGED):
             item = ez.parse_item_value(payload)
             if item:
-                # A4 nese raw hodnotu (dekódování s base 0x80 ji zvládne —
-                # raw -5..+5 padne mimo offset okno), A5 inform má +0x7B
-                base = 0x7B if sub == ez.SUB_ITEM_CHANGED else 0x80
-                self._apply_item(item[0], item[1], base)
+                # A4 i A5 nese +0x80 kódované bass/treble (živě: sweep
+                # 0x7B(−5)→0x81(+1)); starý A5 base 0x7B byl mylný
+                self._apply_item(item[0], item[1])
         elif sub == ez.SUB_SUPPORT_FEATURES:
             support = ez.parse_support_features(payload)
             if support:
@@ -224,15 +223,15 @@ class EzplayClient:
         self.data["treble"] = params["treble"]
         self.data["dimmer"] = params["dimmer"]
 
-    def _apply_item(self, item: int, value: int, base: int = 0x80) -> None:
+    def _apply_item(self, item: int, value: int) -> None:
         if item == ez.ITEM_EQ and 0 <= value < len(ez.EQ_OPTIONS):
             self.data["eq"] = value
-        elif item == ez.ITEM_SURROUND and 0 <= value < len(ez.SURROUND_OPTIONS):
-            self.data["surr"] = value
+        elif item == ez.ITEM_SURROUND:
+            self.data["surr"] = 1 if value else 0    # 0=off, 1=on (bez módu)
         elif item == ez.ITEM_DIMMER:
-            self.data["dimmer"] = value
+            self.data["dimmer"] = min(value, 3)      # menu 0–3
         elif item in (ez.ITEM_BASS, ez.ITEM_TREBLE):
-            decoded = ez.decode_signed(value, base=base)
+            decoded = ez.decode_signed(value, base=0x80)
             key = "bass" if item == ez.ITEM_BASS else "treble"
             self.data[key] = max(ez.BASS_TREBLE_MIN,
                                  min(ez.BASS_TREBLE_MAX, decoded))
@@ -367,7 +366,7 @@ class EzplayClient:
             await self._ensure_session()
             await self._send(self._tv_addr, self._sb_addr,
                              ez.set_item_frame(item, value))
-            self._apply_item(item, value & 0xFF, base=0x80)
+            self._apply_item(item, value & 0xFF)
             return value & 0xFF
         for attempt in range(2):
             await self._ensure_session()
@@ -378,7 +377,7 @@ class EzplayClient:
             )
             if resp is not None:
                 ack = resp[6]
-                self._apply_item(item, ack, base=0x80)
+                self._apply_item(item, ack)
                 return ack
             self._last_spoof = None
             _LOGGER.warning("A2 item %d timeout (pokus %d), obnovuji session",
@@ -420,6 +419,18 @@ class EzplayClient:
         await self._send(self._tv_addr, self._sb_addr, ez.standby_frame())
         self.data["power"] = "standby"
         self._notify()
+
+    async def async_set_surround(self, on: bool) -> None:
+        """Surround on/off přes item2. POZOR: A2 SET má posun o 1 —
+        off=1, on=2 (živě ověřeno: val 3 je odmítnuto, val 2 → on).
+        Módy PURE/PRO se přes EZPlay nerozlišují ani nezapisují."""
+        await self.async_set_item(ez.ITEM_SURROUND, 2 if on else 1)
+        self.data["surr"] = 1 if on else 0
+        self._notify()
+
+    async def async_set_dimmer(self, menu: int) -> None:
+        """Jas displeje: menu 0–3 (raw zápis; wire clampne na 0–2)."""
+        await self.async_set_item(ez.ITEM_DIMMER, max(0, min(3, int(menu))))
 
     async def async_source_pressed(self) -> str:
         """IR SOURCE stisk — posune vstupní cyklus (optimistický tracking).

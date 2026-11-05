@@ -222,12 +222,13 @@ class TestWrites(unittest.IsolatedAsyncioTestCase):
         t = FakeTransport(default_script)
         c = make_client(t)
         await c.async_start()
-        ack = await c.async_set_item(ez.ITEM_BASS, -3)
-        self.assertEqual(ack, 0xFD)
+        # bass −3: item 3, +0x80 kódování (0x7D); A4 echo = zapsaná hodnota
+        ack = await c.async_set_item(ez.ITEM_BASS, ez.encode_bass_treble(-3))
+        self.assertEqual(ack, 0x7D)
         self.assertEqual(c.data["bass"], -3)
         last = t.sent[-1]
         self.assertEqual(
-            last, (0, SB, [0xA0, 0xA8, 0x82, 0x00, 0xA2, 0x02, 0xFD])
+            last, (0, SB, [0xA0, 0xA8, 0x82, 0x00, 0xA2, 0x03, 0x7D])
         )
 
     async def test_set_item_eq(self):
@@ -308,15 +309,40 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(c.data["mute"])
         self.assertEqual(c.data["volume"], 37)
 
-    async def test_a5_push_bass_offset_0x7b(self):
+    async def test_a5_push_items(self):
         t = FakeTransport()
         c = make_client(t)
-        # A5 inform: bass +3 v offsetu +0x7B = 0x7E
-        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x02, 0x7E])
-        self.assertEqual(c.data["bass"], 3)
-        # A5: EQ -> GAME
+        # A5 inform: bass −3 v +0x80 kódování (živě: sweep 0x7B(−5)→0x81(+1))
+        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x03, 0x7D])
+        self.assertEqual(c.data["bass"], -3)
+        # A5: surround off/on (item2, binární)
+        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x02, 0x00])
+        self.assertEqual(c.data["surr"], 0)
+        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x02, 0x01])
+        self.assertEqual(c.data["surr"], 1)
+        # A5: dimmer menu 2 (item5, raw; wire clamp 0–2)
+        c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x05, 0x02])
+        self.assertEqual(c.data["dimmer"], 2)
+        # A5: EQ -> GAME (item1)
         c._handle_frame(SB, 0, [0xA0, 0xA8, 0x82, 0x00, 0xA5, 0x01, 0x05])
         self.assertEqual(c.data["eq"], 5)
+
+    async def test_set_surround_and_dimmer(self):
+        t = FakeTransport(default_script)
+        c = make_client(t)
+        await c.async_start()
+        await c.async_set_surround(True)
+        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
+                                              0xA2, 0x02, 0x02]))
+        self.assertEqual(c.data["surr"], 1)
+        await c.async_set_surround(False)
+        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
+                                              0xA2, 0x02, 0x01]))
+        self.assertEqual(c.data["surr"], 0)
+        await c.async_set_dimmer(3)
+        self.assertEqual(t.sent[-1], (0, SB, [0xA0, 0xA8, 0x82, 0x00,
+                                              0xA2, 0x05, 0x03]))
+        self.assertEqual(c.data["dimmer"], 3)
 
     async def test_ucp_push_updates_volume(self):
         t = FakeTransport()

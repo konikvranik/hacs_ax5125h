@@ -62,21 +62,21 @@ BLOCKED_SUBOPCODES = frozenset(
 )
 
 # --- items ------------------------------------------------------------------
+# Mapování item id živě ověřeno A/B testem (2026-11-05): surround změna
+# pohnula item 2, bas item 3, treble item 4, jas displeje item 5. Staré
+# mapování (2=BASS, 4=DIMMER, 5=SURR) bylo mylné — a A2 zápisy na špatné
+# itemy korbupovaly NVRAM (RTVR hodnoty 11–13 mimo rozsah 0–10).
 ITEM_EQ = 1
-ITEM_BASS = 2
-ITEM_TREBLE = 3
-ITEM_DIMMER = 4
-ITEM_SURROUND = 5
+ITEM_SURROUND = 2   # 0=off, 1=on — PURE vs PRO EZPlay nerozlišuje (jen RTVR)
+ITEM_BASS = 3       # +0x80 kódování: 0x7D=−3, 0x80=0, 0x81=+1 (A1/A4/A5 i A2)
+ITEM_TREBLE = 4     # +0x80 kódování
+ITEM_DIMMER = 5     # menu 0–3 raw zápis; wire clampne na 0–2 (menu 3 čte 2)
 
 #: EQ (item 1) — EZPlay hodnoty (0-based). POZOR: RTVR vrstva má jiné číslování!
 EQ_OPTIONS = ("MUSIC", "MOVIE", "NEWS", "SPORT", "NIGHT", "GAME", "AI EQ")
 
-#: SURROUND (item 5)
-SURROUND_OPTIONS = ("PURE", "PRO", "OFF")
-
-#: DIMMER (item 4): menu 0-3 = interně 1-4; hodnoty 5+ korumpují menu!
-DIMMER_INTERNAL_MIN = 1
-DIMMER_INTERNAL_MAX = 4
+#: SURROUND (item 2) — binární on/off na EZPlay wire
+SURROUND_OPTIONS = ("OFF", "ON")
 
 BASS_TREBLE_MIN = -5
 BASS_TREBLE_MAX = 5
@@ -193,9 +193,15 @@ def decode_signed(value: int, base: int = 0x80) -> int:
     return value - 256 if value > 127 else value
 
 
-def encode_signed(value: int) -> int:
-    """Zápis BASS/TREBLE přes A2: two's complement -5..+5."""
-    return value & 0xFF
+def encode_bass_treble(value: int) -> int:
+    """Zápis BASS/TREBLE přes A2: +0x80 kódování (−3 → 0x7D, 0 → 0x80).
+
+    Živě ověřeno (2026-11-05): IR změna bas −3 se na wire projevila jako
+    0x7D; A2 SET interpretuje hodnotu jako +0x80 formu (obj = val − 0x7B,
+    interní škála 0–10 = value+5). Two's complement hodnoty (0xFD apod.)
+    zapisovaly nevalidní obj → NVRAM korupce (RTVR 11–13).
+    """
+    return (value + 0x80) & 0xFF
 
 
 def parse_all_params(payload: list[int]) -> dict | None:

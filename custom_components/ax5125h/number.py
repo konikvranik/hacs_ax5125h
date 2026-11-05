@@ -14,7 +14,13 @@ from .client import EzplayError
 from .const import DOMAIN
 from .coordinator import SoundbarCoordinator
 from .entity import AxEntity
-from .ezplay import BASS_TREBLE_MAX, BASS_TREBLE_MIN, ITEM_BASS, ITEM_TREBLE
+from .ezplay import (
+    BASS_TREBLE_MAX,
+    BASS_TREBLE_MIN,
+    ITEM_BASS,
+    ITEM_TREBLE,
+    encode_bass_treble,
+)
 from .transports import TransportError
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,7 +56,7 @@ class _AxNumber(AxEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         try:
             await self.coordinator.client.async_set_item(
-                self._item, int(value)
+                self._item, encode_bass_treble(int(value))
             )
         except (EzplayError, TransportError) as exc:
             raise HomeAssistantError(str(exc)) from exc

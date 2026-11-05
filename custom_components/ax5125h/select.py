@@ -15,13 +15,8 @@ from .const import DOMAIN
 from .coordinator import SoundbarCoordinator
 from .entity import AxEntity
 from .ezplay import (
-    DIMMER_INTERNAL_MAX,
-    DIMMER_INTERNAL_MIN,
     EQ_OPTIONS,
-    ITEM_DIMMER,
     ITEM_EQ,
-    ITEM_SURROUND,
-    SURROUND_OPTIONS,
 )
 from .transports import TransportError
 
@@ -86,60 +81,51 @@ class EqSelect(_BaseSelect):
 
 
 class SurroundSelect(_BaseSelect):
+    """Surround: EZPlay item2 nese jen on/off (0=off, 1=on) — módy PURE vs
+    PRO nejsou přes EZPlay čitelné ani zapisovatelné (jen RTVR opt1, ta se
+    kvůli handshake side-efektům nepoužívá). A2 SET má posun o 1:
+    off=1, on=2 (živě: val 3 odmítnuto)."""
+
     _attr_icon = "mdi:surround-sound"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
-        super().__init__(coordinator, "surround", SURROUND_OPTIONS)
+        super().__init__(coordinator, "surround", ("OFF", "ON"))
 
     @property
     def current_option(self) -> str | None:
         value = self.sb_data.get("surr")
-        if value is None or not 0 <= value < len(SURROUND_OPTIONS):
-            return None
-        return SURROUND_OPTIONS[value]
+        return ("OFF", "ON")[value] if value in (0, 1) else None
 
     async def async_select_option(self, option: str) -> None:
         try:
-            await self.coordinator.client.async_set_item(
-                ITEM_SURROUND, SURROUND_OPTIONS.index(option)
-            )
+            await self.coordinator.client.async_set_surround(option == "ON")
         except (EzplayError, TransportError) as exc:
             raise HomeAssistantError(str(exc)) from exc
         self.coordinator.async_update_listeners()
 
 
 class DimmerSelect(_BaseSelect):
-    """Jas displeje: menu 0-3 = interně 1-4 (rozsah 5+ korumpuje menu!).
+    """Jas displeje: menu 0–3, A2 SET raw menu hodnotou.
 
-    A1 hlásí interní 0, když si soundbar displej po nečinnosti sám ztlumí —
-    zobrazujeme jako nejslabší úroveň (zápis nikdy 0, vždy 1-4).
+    Wire (A1/A5) clampne na 0–2 — po zápisu 3 čte zpětně 2 (limit FW
+    builderu, displej 3 ukáže). Auto-dim displeje = 0.
     """
 
     _attr_icon = "mdi:brightness-6"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
-        super().__init__(
-            coordinator, "dimmer",
-            tuple(str(i) for i in range(
-                DIMMER_INTERNAL_MIN - 1, DIMMER_INTERNAL_MAX)),
-        )
+        super().__init__(coordinator, "dimmer", ("0", "1", "2", "3"))
 
     @property
     def current_option(self) -> str | None:
         value = self.sb_data.get("dimmer")
         if value is None:
             return None
-        if value <= 0:
-            return "0"  # display auto-ztlumen (interní 0)
-        if value > DIMMER_INTERNAL_MAX:
-            return None
-        return str(value - DIMMER_INTERNAL_MIN)
+        return str(min(value, 3))
 
     async def async_select_option(self, option: str) -> None:
         try:
-            await self.coordinator.client.async_set_item(
-                ITEM_DIMMER, int(option) + DIMMER_INTERNAL_MIN
-            )
+            await self.coordinator.client.async_set_dimmer(int(option))
         except (EzplayError, TransportError) as exc:
             raise HomeAssistantError(str(exc)) from exc
         self.coordinator.async_update_listeners()
