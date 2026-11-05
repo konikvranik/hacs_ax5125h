@@ -93,16 +93,17 @@ class SoundbarCoordinator(DataUpdateCoordinator[dict]):
             raise UpdateFailed(str(exc)) from exc
 
     def _adapt_polling(self, data: dict) -> None:
-        """Přepíná cadenci: aktivní (on + aktivita < IDLE_AFTER) = plný poll
-        konfigurovaným intervalem; idle/standby = 60 s audio-only probe.
+        """Přepíná cadenci dle AKTIVITY (ne power stavu): poslední HA příkaz
+        nebo push ze soundbaru < IDLE_AFTER = plný poll konfigurovaným
+        intervalem; jinak 60 s audio-only probe.
 
-        Push zprávy (0x7A/A5/…) a HA příkazyaktivitu obnoví okamžitě (client
-        nastavuje last_activity), takže rychlý poll se vrací bez čekání.
+        Aktivita NEZJIŠŤUJEME z power stavu — poll-unmute z měkkého standby
+        překlopí stav na on, a kdyby ten flip pustil rychlý vendor poll,
+        držel by bar v měkkém standby navždy (nekonečné on/off oscilace,
+        pozorováno 0.6.0). Push zprávy (0x7A/A5/…) a HA příkazy aktivitu
+        obnovují okamžitě, takže rychlý poll se vrací bez čekání.
         """
-        active = (
-            data.get("power") == "on"
-            and time.time() - data.get("last_activity", 0.0) < IDLE_AFTER
-        )
+        active = time.time() - data.get("last_activity", 0.0) < IDLE_AFTER
         self._active = active
         target = timedelta(
             seconds=self._active_interval if active else STANDBY_POLL_INTERVAL

@@ -150,6 +150,30 @@ class TestRefresh(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent_ops, [ez.OP_GIVE_AUDIO_STATUS])
         self.assertNotIn(0xA0, sent_ops)
 
+    async def test_poll_unmute_debounce(self):
+        """Jeden poll-unmute z měkkého standby nepřeklopí standby→on (vlastní
+        smyčka 0.6.0: flip pustil rychlý vendor poll, ten držel bar vzhůru);
+        flip až po 2 souvislých vzorcích. Push flipne hned."""
+        def unmute(src, dst, payload):
+            if payload[0] == ez.OP_GIVE_AUDIO_STATUS:
+                return (SB, 0, [0x7A, 30])
+            return None
+
+        t = FakeTransport(unmute)
+        c = make_client(t)
+        await c.async_start()
+        c.data["power"] = "standby"
+        c.data["mute"] = True
+        await c.async_refresh()
+        self.assertEqual(c.data["power"], "standby")    # 1. vzorek: jen streak
+        await c.async_refresh()
+        self.assertEqual(c.data["power"], "on")         # 2. vzorek: flip
+        # push okamžitě flipne bez debouncu
+        c.data["power"] = "standby"
+        c.data["unmute_streak"] = 0
+        c._handle_frame(SB, 0, [0x7A, 25])
+        self.assertEqual(c.data["power"], "on")
+
     async def test_activity_tracking(self):
         """Spontánní rámce ze SB a HA příkazy = aktivita ( rychlý polling),
         odpovědi na náš poll ne."""
@@ -468,8 +492,12 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
+        # první pár: SP (TV, broadcast) + AS (gateway, broadcast)
         self.assertEqual(t.sent[0], (0, 0xF, [0x86, 0x31, 0x00]))
         self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
+        # probuzení potvrzeno v prvním cyklu → žádný retry
+        sps = [p for p in t.sent if p[2][0] == 0x86]
+        self.assertEqual(len(sps), 1)
         self.assertEqual(c.data["power"], "on")
         self.assertFalse(c.data["mute"])
         self.assertFalse(any(p[2][0] in (0x70, 0x44, 0x45) for p in t.sent))

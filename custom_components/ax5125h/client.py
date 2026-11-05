@@ -234,20 +234,30 @@ class EzplayClient:
         self.data["mute"], self.data["volume"] = audio
         if not is_reply:
             # spontánní push: bar reaguje na IR/HA → živý = on; zároveň
-            # ukončí případné potlačení po power_off
+            # ukončí případné potlačení po power_off a resetuje debounce
             self.data["power_suppress_until"] = 0.0
             self.data["last_activity"] = time.time()
+            self.data["unmute_streak"] = 0
             self.data["power"] = "on"
         elif not audio[0]:
-            if time.time() > self.data.get("power_suppress_until", 0.0):
-                if self.data.get("power") == "standby":
-                    # standby→on poll flip: bar se probudil sám (TV/Kodi)
-                    # = aktivita, pustíme rychlý polling
-                    self.data["last_activity"] = time.time()
+            # unmute z pollu: DEBOUNCE — flip standby→on až po 2 souvislých
+            # vzorcích. Jednofázový flip tu vytvářel vlastní smyčku: poll
+            # flip standby→on pustil rychlý vendor poll → ten držel bar
+            # v měkkém standby (unmute) → nekonečné on/off oscilace.
+            streak = (self.data.get("unmute_streak") or 0) + 1
+            self.data["unmute_streak"] = streak
+            if time.time() <= self.data.get("power_suppress_until", 0.0):
+                self.data["unmute_streak"] = 0
+            elif self.data.get("power") is None:
+                # první poll po startu (žádný předchozí stav) — rovnou on,
+                # debounce hlídá jen překlopení KNÁMÉHO standby (flap ochrana)
+                self.data["power"] = "on"
+            elif streak >= 2 and self.data.get("power") != "on":
                 self.data["power"] = "on"
         elif prev_mute is not True:
             # poll viděl mute bez push signálu (0→1 přechod, nebo první
             # poll po startu s neznámým předchozím stavem) = hluboký standby
+            self.data["unmute_streak"] = 0
             self.data["power"] = "standby"
             self.data["power_suppress_until"] = 0.0
         # mute=1 a už dřív mute (trvalý mute po pushi) → power necháme
@@ -365,9 +375,12 @@ class EzplayClient:
             raise EzplayTimeout(
                 "soundbar neodpovídá na 0x71 (CEC výpadek?)"
             )
-        self._apply_audio(parsed, is_reply=True)
+        # POZOR: mute/volume/power už aplikoval _handle_frame (jediné místo,
+        # kde jde správně rozlišit reply vs. spontánní push) — tady znovu
+        # NEAPLIKUJEME, dvojí aplikace rozbíjí debounce (0.6.1).
+        muted = bool(self.data.get("mute"))
 
-        if audio_only or (parsed[0] and self.data.get("power") != "on"):
+        if audio_only or (muted and self.data.get("power") != "on"):
             # deep standby (mute přechod bez push) / idle fáze — vendor
             # provoz šetříme (i kvůli hlubokému standby samotného baru)
             self.data["last_seen"] = time.time()
@@ -512,13 +525,21 @@ class EzplayClient:
         woke = False
         for attempt in range(4):
             await asyncio.sleep(2.5)
+            if attempt:
+                # retry: přepošleme oba wake rámce (zatím nevíme, ze kterého
+                # standby fáze na který rámec reaguje — SP ověřen z deep,
+                # AS z měkké fáze / Kodi dance)
+                await self._send(self._tv_addr, 0xF,
+                                 ez.set_stream_path_frame(self._hdmi_pa))
+                await self._send(self._gw_addr, 0xF,
+                                 ez.active_source_frame(self._hdmi_pa))
             audio = await self._request(
                 self._tv_addr, self._sb_addr, ez.give_audio_status_frame(),
                 lambda p: p[0] == ez.OP_REPORT_AUDIO_STATUS, self.t_short,
             )
             parsed = ez.parse_audio_status(audio) if audio is not None else None
             if parsed is not None:
-                self._apply_audio(parsed, is_reply=True)
+                # stav už aplikoval _handle_frame — tady jen kontrola unmute
                 if not parsed[0]:
                     woke = True
                     break
