@@ -236,9 +236,33 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
     async def test_input_hdmi(self):
         t = FakeTransport()
         c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c.data["power"] = "on"
         await c.async_set_input("hdmi")
         self.assertEqual(t.sent[-1], (GW, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["input"], "hdmi")
+
+    async def test_input_hdmi_while_off_wakes_on_hdmi(self):
+        """Volba HDMI při vypnutém soundbaru ho rovnou probudí na HDMI IN:
+        Active Source z gatewaye + UCP Power On přímo na soundbar (0xE -> 5).
+        TV (0) o ničem neví a neprobudí se."""
+        def awake(src, dst, payload):
+            if payload[0] == 0x44 and payload[1] == 0x6D:
+                return (SB, 15, [0x72, 0x01])          # probuzený bar: SAM on
+            return None
+
+        t = FakeTransport(awake)
+        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c.data["power"] = "standby"
+        await c.async_start()
+        await c.async_set_input("hdmi")
+        self.assertEqual(len(t.sent), 3)
+        self.assertEqual(t.sent[0], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[1], (GW, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[2], (GW, SB, [0x45, 0x6D]))
+        self.assertEqual(c.data["power"], "on")
+        self.assertEqual(c.data["input"], "hdmi")
+        # Žádný rámec neodešel TV (0)
+        self.assertFalse(any(dst == 0 for _, dst, _ in t.sent))
 
     async def test_active_source_push_updates_input(self):
         t = FakeTransport()
@@ -461,6 +485,30 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
                                   (0, SB, [0x44, 0x6D]),
                                   (0, SB, [0x45, 0x6D])])
         self.assertEqual(c.data["power"], "on")
+
+    async def test_power_on_hdmi(self):
+        """Power ON když je cílový/poslední vstup HDMI: probuzení proběhne
+        přes gateway (0xE) na HDMI IN bez SAM requestu na TV (0).
+        SAM on broadcast (72:01) nepřepíše vstup na ARC."""
+        def awake(src, dst, payload):
+            if payload[0] == 0x44 and payload[1] == 0x6D:
+                return (SB, 15, [0x72, 0x01])          # probuzený bar: SAM on
+            return None
+
+        t = FakeTransport(awake)
+        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c.data["input"] = "hdmi"
+        await c.async_start()
+        await c.async_power_on()
+        # Active Source + UCP od gatewaye, ŽÁDNÝ SAM request od TV
+        self.assertEqual(t.sent[0], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[1], (GW, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[2], (GW, SB, [0x45, 0x6D]))
+        self.assertEqual(len(t.sent), 3)
+        self.assertEqual(c.data["power"], "on")
+        self.assertEqual(c.data["input"], "hdmi")
+        # Žádný rámec neodešel TV (0)
+        self.assertFalse(any(dst == 0 for _, dst, _ in t.sent))
 
     async def test_source_pressed_cycles_inputs(self):
         """IR SOURCE stisk posouvá cyklus ARC→HDMI→OPT→AUX→USB→BT→ARC;

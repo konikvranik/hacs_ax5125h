@@ -120,6 +120,9 @@ class EzplayClient:
         self._off_settle_until = float("-inf")
         #: čas posledního explicitního power_off (debounce dvojitého OFF)
         self._off_last = float("-inf")
+        #: Běžící power-on cíl vstupu ("hdmi" / "arc") pro ochranu stavu
+        #: před přepsáním SAM-on (72:01) broadcastem při probuzení
+        self._wake_input: str | None = None
         #: Transport nedodává rx (hdmi_cec integrace)? Pak vendor zápisy jen
         #: optimistické a refresh neposílá dotazy (žádné timeouty).
         self.rx_capable = bool(getattr(transport, "supports_rx", True))
@@ -228,7 +231,8 @@ class EzplayClient:
             # začátku vypínací choreografie (živě #20) — jako power/input
             # signál platí jen mimo okno po explicitním power_off.
             if payload[1] == 1 and time.monotonic() >= self._off_settle_until:
-                self.data["input"] = "arc"
+                if self._wake_input != "hdmi":
+                    self.data["input"] = "arc"
                 self.data["power"] = "on"
         elif opcode == ez.OP_USER_CONTROL_PRESSED and dst == self._sb_addr and len(payload) >= 2:
             code = payload[1]
@@ -481,24 +485,31 @@ class EzplayClient:
     async def async_set_input(self, which: str) -> None:
         """Přepnutí vstupu: 'arc' (SAM Request jako TV) / 'hdmi' (Active
         Source broadcast za gateway — soundbar přijímá routing jen od
-        switch-role zařízení z eARC strany)."""
+        switch-role zařízení z eARC strany). Při vypnutém soundbaru volba
+        HDMI rovnou soundbar zapne na HDMI IN z gatewaye bez účasti TV."""
         self.data["last_activity"] = time.time()
         which = which.lower()
         if which == "arc":
             await self._send(self._tv_addr, self._sb_addr,
                              ez.sam_request_frame())
+            self.data["input"] = "arc"
         elif which == "hdmi":
-            await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+            was_off = self.data.get("power") != "on"
+            self.data["input"] = "hdmi"
+            if was_off:
+                await self.async_power_on()
+            else:
+                await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
         else:
             raise ValueError(f"neznámý vstup: {which}")
-        self.data["input"] = which
 
     async def async_power_on(self) -> None:
-        """Zapne soundbar: SAM-terminate (odlepení ze zaseknutého SAM-on
-        stavu — živě ověřeno #15: uvízl-li bar s SAM on, TV s ním jede ARC
-        handshake smyčku každých ~5 s a nepustí ho do BYE) + UCP Power On
-        (0x6D press/release) — jediný dvakrát ověřený wake z hlubokého
-        standby. Verifikace je PASIVNÍ — žádné další dotazy: pokud do 8 s
+        """Zapne soundbar:
+        - pro vstup HDMI: Active Source na port HDMI IN za gateway (0xE) +
+          UCP Power On přímo na soundbar (0xE -> 5); TV o ničem neví a
+          soundbar startuje do HDMI IN bez pokusu o ARC.
+        - pro vstup ARC: SAM-terminate/request na TV + UCP Power On od TV (0).
+        Verifikace je PASIVNÍ — žádné další dotazy: pokud do 8 s
         nepřijde žádný spontánní rámec (72:01/7A/…), probuzení se nepovedlo
         a stav se poctivě vrací na standby.
         """
@@ -507,19 +518,34 @@ class EzplayClient:
         # jsou události ze baru zase plnohodnotné signály
         self._off_settle_until = float("-inf")
         self._off_last = float("-inf")
-        await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
-        await self._send(
-            self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
-        )
-        await asyncio.sleep(0.15)
-        await self._send(
-            self._tv_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
-        )
+        is_hdmi = self.data.get("input") == "hdmi"
+        if is_hdmi:
+            self._wake_input = "hdmi"
+            await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+            await self._send(
+                self._gw_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
+            )
+            await asyncio.sleep(0.15)
+            await self._send(
+                self._gw_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
+            )
+        else:
+            self._wake_input = "arc"
+            await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
+            await self._send(
+                self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
+            )
+            await asyncio.sleep(0.15)
+            await self._send(
+                self._tv_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
+            )
         self.data["power"] = "on"
         self._notify()
         if not self.rx_capable:
+            self._wake_input = None
             return
         await asyncio.sleep(8)
+        self._wake_input = None
         if self.data.get("power") == "standby":
             return  # 90:01 dospěl — event handler to opravil
         if self.data.get("last_activity", 0.0) <= before_activity:
