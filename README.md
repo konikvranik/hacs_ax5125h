@@ -144,11 +144,6 @@ Readout: A1 = `[EQ][SURR][BASS+0x80][TRE+0x80][DIM]` (most reliable).
   - within the active window (10 min after the last command/push) the
     integration polls volume/EQ normally; after it, **zero queries** until
     the next event
-- **Wake lands on HDMI** (0.7.5): a waking bar is pulled into ARC by the TV
-  within ~1 s regardless of who woke it (measured); after the ARC handshake
-  settles (~3 s) the integration sends **one** Active Source frame to the
-  HDMI IN port, so ON — and an HDMI selection made while off — ends on the
-  primary HDMI input.
 - Known limits: turning the bar off by IR (not via HA) is picked up only if
   the bar emits a standby report; the state is *unknown* after an HA restart
   until the first event or command arrives.
