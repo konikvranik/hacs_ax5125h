@@ -94,6 +94,7 @@ class EzplayClient:
         sb_addr: int = 5,
         gw_addr: int = 14,
         hdmi_pa: tuple[int, int] = (0x31, 0x00),
+        hdmi_la: int = 1,
         on_update: Callable[[dict], None] | None = None,
         session_delay: float = 0.5,
     ) -> None:
@@ -102,6 +103,7 @@ class EzplayClient:
         self._sb_addr = sb_addr
         self._gw_addr = gw_addr
         self._hdmi_pa = hdmi_pa
+        self._hdmi_la = hdmi_la
         self._on_update = on_update
         self._session_delay = session_delay
         self._pending: list[_Pending] = []
@@ -132,8 +134,10 @@ class EzplayClient:
         self.t_item = 2.0     # A2 -> A4
         self.t_support = 2.0  # 0x90 -> 0x91
         self.t_rtvr = 2.0     # RTVR SetState -> ReportState
-        #: Poslední známý stav (aktualizuje se i push zprávami A5/0x82).
-        self.data: dict = {}
+        self.t_wake_wait = 2.5   # Prodleva pro nabootování baru před Active Source
+        self.t_power_wait = 8.0  # Celková doba čekání na liveness potvrzení
+        #: Poslední známý stav (výchozí vstup je HDMI IN).
+        self.data: dict = {"input": "hdmi"}
 
     # -- lifecycle -----------------------------------------------------------
     def set_update_callback(self, callback: Callable[[dict], None]) -> None:
@@ -499,7 +503,7 @@ class EzplayClient:
             if was_off:
                 await self.async_power_on()
             else:
-                await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+                await self._send(self._hdmi_la, 0xF, ez.active_source_frame(self._hdmi_pa))
         else:
             raise ValueError(f"neznámý vstup: {which}")
 
@@ -507,8 +511,8 @@ class EzplayClient:
         """Zapne soundbar:
         - pro vstup HDMI: Report ARC Initiated (0xC1) od TV přímo na soundbar
           (0 -> 5) fyzicky sepne hlavní napájení (SMPS) a rozsvítí displej,
-          aniž by probudil TV + Active Source na port HDMI IN za gateway (0xE),
-          čímž soundbar přepne na HDMI IN.
+          aniž by probudil TV. Po nabootování DSP bar přepneme do HDMI IN
+          broadcastem Active Source od zdroje na HDMI portu (LA 1, PA 3.1.0.0).
         - pro vstup ARC: Report ARC Initiated + SAM Request + UCP Power On od TV.
         Verifikace je PASIVNÍ — žádné další dotazy: pokud do 8 s
         nepřijde žádný spontánní rámec (72:01/7A/…), probuzení se nepovedlo
@@ -519,14 +523,18 @@ class EzplayClient:
         # jsou události ze baru zase plnohodnotné signály
         self._off_settle_until = float("-inf")
         self._off_last = float("-inf")
-        is_hdmi = self.data.get("input") == "hdmi"
+        is_hdmi = self.data.get("input") != "arc"
         if is_hdmi:
             self._wake_input = "hdmi"
             await self._send(
                 self._tv_addr, self._sb_addr, ez.report_arc_initiated_frame()
             )
-            await asyncio.sleep(0.2)
-            await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+            # Soundbar standby MCU potřebuje ~2-2.5s k sepnutí relé SMPS a nabootování DSP.
+            # Rámec Active Source poslaný dříve (<2s) DSP zahodí.
+            await asyncio.sleep(self.t_wake_wait)
+            await self._send(self._hdmi_la, 0xF, ez.active_source_frame(self._hdmi_pa))
+            await asyncio.sleep(0.3)
+            await self._send(self._hdmi_la, 0xF, ez.active_source_frame(self._hdmi_pa))
         else:
             self._wake_input = "arc"
             await self._send(
@@ -545,7 +553,8 @@ class EzplayClient:
         if not self.rx_capable:
             self._wake_input = None
             return
-        await asyncio.sleep(8)
+        remaining_wait = max(0.0, self.t_power_wait - self.t_wake_wait - 0.3) if is_hdmi else self.t_power_wait
+        await asyncio.sleep(remaining_wait)
         self._wake_input = None
         if self.data.get("power") == "standby":
             return  # 90:01 dospěl — event handler to opravil

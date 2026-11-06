@@ -37,6 +37,8 @@ class FakeTransport(CecTransport):
 def make_client(transport, **kw):
     c = EzplayClient(transport, session_delay=0, **kw)
     c.t_short = c.t_params = c.t_item = c.t_support = c.t_rtvr = 0.05
+    c.t_wake_wait = 0.01
+    c.t_power_wait = 0.05
     return c
 
 
@@ -235,16 +237,16 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
     async def test_input_hdmi(self):
         t = FakeTransport()
-        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c = make_client(t, hdmi_pa=(0x31, 0x00), hdmi_la=1)
         c.data["power"] = "on"
         await c.async_set_input("hdmi")
-        self.assertEqual(t.sent[-1], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[-1], (1, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["input"], "hdmi")
 
     async def test_input_hdmi_while_off_wakes_on_hdmi(self):
         """Volba HDMI při vypnutém soundbaru ho rovnou probudí na HDMI IN:
         Report ARC Initiated (0xC1) přímo na soundbar (0 -> 5) sepne SMPS
-        a rozsvítí displej + Active Source z gatewaye přepne na HDMI IN.
+        a rozsvítí displej + Active Source od zdroje na HDMI portu přepne na HDMI IN.
         TV (0) o ničem neví a neprobudí se."""
         def awake(src, dst, payload):
             if payload[0] == 0xC1:
@@ -252,13 +254,14 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
             return None
 
         t = FakeTransport(awake)
-        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c = make_client(t, hdmi_pa=(0x31, 0x00), hdmi_la=1)
         c.data["power"] = "standby"
         await c.async_start()
         await c.async_set_input("hdmi")
-        self.assertEqual(len(t.sent), 2)
+        self.assertEqual(len(t.sent), 3)
         self.assertEqual(t.sent[0], (0, SB, [0xC1]))
-        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[1], (1, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[2], (1, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "hdmi")
         # Žádný rámec neodešel TV (0) jako cíl
@@ -451,6 +454,7 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
         t = FakeTransport(awake)
         c = make_client(t)
+        c.data["input"] = "arc"
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(t.sent[0], (0, SB, [0xC1]))
@@ -466,6 +470,7 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         poctivě vrací na standby (žádné zaseknuté optimistické on)."""
         t = FakeTransport(None)                        # ticho — neprobudil se
         c = make_client(t)
+        c.data["input"] = "arc"
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(c.data["power"], "standby")
@@ -476,6 +481,7 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         t = FakeTransport(None)
         t.supports_rx = False
         c = make_client(t)
+        c.data["input"] = "arc"
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(t.sent, [(0, SB, [0xC1]),
@@ -486,7 +492,7 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
     async def test_power_on_hdmi(self):
         """Power ON když je cílový/poslední vstup HDMI: Report ARC Initiated
-        přímo na soundbar + Active Source na HDMI IN za gateway (0xE).
+        přímo na soundbar + Active Source od HDMI zdroje (LA 1).
         TV (0) o ničem neví a neprobudí se."""
         def awake(src, dst, payload):
             if payload[0] == 0xC1:
@@ -494,13 +500,14 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
             return None
 
         t = FakeTransport(awake)
-        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c = make_client(t, hdmi_pa=(0x31, 0x00), hdmi_la=1)
         c.data["input"] = "hdmi"
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(t.sent[0], (0, SB, [0xC1]))
-        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
-        self.assertEqual(len(t.sent), 2)
+        self.assertEqual(t.sent[1], (1, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(t.sent[2], (1, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(len(t.sent), 3)
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "hdmi")
         # Žádný rámec neodešel TV (0) jako cíl

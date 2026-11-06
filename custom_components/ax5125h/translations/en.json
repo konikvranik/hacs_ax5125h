@@ -37,6 +37,7 @@
         "data": {
           "poll_interval": "Poll interval (s)",
           "hdmi_pa": "Physical address of HDMI IN (for switching to HDMI)",
+          "hdmi_la": "Logical address of HDMI IN source",
           "tv_addr": "TV logical address",
           "sb_addr": "Soundbar logical address",
           "gw_addr": "Gateway / switch-role logical address"
@@ -63,6 +64,7 @@
         "data": {
           "poll_interval": "Poll interval (s)",
           "hdmi_pa": "Physical address of HDMI IN",
+          "hdmi_la": "Logical address of HDMI IN source",
           "tv_addr": "TV logical address",
           "sb_addr": "Soundbar logical address",
           "gw_addr": "Gateway logical address",

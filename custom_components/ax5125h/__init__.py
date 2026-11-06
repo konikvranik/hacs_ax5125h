@@ -161,6 +161,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         sb_addr=int(entry.data.get("sb_addr", 5)),
         gw_addr=int(entry.data.get("gw_addr", 14)),
         hdmi_pa=pa_from_str(entry.data.get("hdmi_pa", "3.1.0.0")),
+        hdmi_la=int(entry.data.get("hdmi_la", 1)),
     )
     coordinator = SoundbarCoordinator(hass, entry, client)
 

@@ -68,13 +68,17 @@ class SoundbarMediaPlayer(AxEntity, MediaPlayerEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self.sb_data.get("power") is None:
-            last = await self.async_get_last_state()
-            if last is not None:
+        last = await self.async_get_last_state()
+        if last is not None:
+            if self.sb_data.get("power") is None:
                 if last.state == MediaPlayerState.ON:
                     self.coordinator.client.data["power"] = "on"
                 elif last.state in (MediaPlayerState.STANDBY, MediaPlayerState.OFF):
                     self.coordinator.client.data["power"] = "standby"
+            if self.sb_data.get("input") is None:
+                last_source = last.attributes.get("source")
+                if last_source and last_source in _LABEL_TO_INPUT:
+                    self.coordinator.client.data["input"] = _LABEL_TO_INPUT[last_source]
 
     @property
     def state(self) -> MediaPlayerState | None:

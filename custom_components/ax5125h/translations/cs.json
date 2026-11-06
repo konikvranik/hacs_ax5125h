@@ -37,6 +37,7 @@
         "data": {
           "poll_interval": "Poll interval (s)",
           "hdmi_pa": "Fyzická adresa HDMI IN (pro přepnutí na HDMI)",
+          "hdmi_la": "Logická adresa zdroje na HDMI IN (Kodi)",
           "tv_addr": "Logická adresa TV",
           "sb_addr": "Logická adresa soundbaru",
           "gw_addr": "Logická adresa gatewaye/switch role"
@@ -63,6 +64,7 @@
         "data": {
           "poll_interval": "Poll interval (s)",
           "hdmi_pa": "Fyzická adresa HDMI IN",
+          "hdmi_la": "Logická adresa zdroje na HDMI IN (Kodi)",
           "tv_addr": "Logická adresa TV",
           "sb_addr": "Logická adresa soundbaru",
           "gw_addr": "Logická adresa gatewaye",

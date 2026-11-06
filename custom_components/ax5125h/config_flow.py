@@ -16,6 +16,7 @@ from .client import EzplayClient, EzplayTimeout
 from .const import (
     CONF_BUS_LOG_SWITCH,
     CONF_GW_ADDR,
+    CONF_HDMI_LA,
     CONF_HDMI_PA,
     CONF_POLL_INTERVAL,
     CONF_POWER_ENTITY,
@@ -25,6 +26,7 @@ from .const import (
     CONF_TRANSPORT,
     CONF_TV_ADDR,
     DEFAULT_GW_ADDR,
+    DEFAULT_HDMI_LA,
     DEFAULT_HDMI_PA,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_PREFIX,
@@ -99,6 +101,7 @@ async def _async_validate(hass: HomeAssistant, data: dict) -> tuple[dict, str | 
         sb_addr=data[CONF_SB_ADDR],
         gw_addr=data[CONF_GW_ADDR],
         hdmi_pa=pa_from_str(data[CONF_HDMI_PA]),
+        hdmi_la=int(data.get(CONF_HDMI_LA, DEFAULT_HDMI_LA)),
     )
     try:
         await client.async_start()
@@ -276,6 +279,10 @@ class Ax5125hConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         default=self._data.get(CONF_HDMI_PA, DEFAULT_HDMI_PA),
                     ): str,
                     vol.Optional(
+                        CONF_HDMI_LA,
+                        default=self._data.get(CONF_HDMI_LA, DEFAULT_HDMI_LA),
+                    ): int,
+                    vol.Optional(
                         CONF_TV_ADDR,
                         default=self._data.get(CONF_TV_ADDR, DEFAULT_TV_ADDR),
                     ): int,
@@ -325,6 +332,9 @@ class Ax5125hOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_HDMI_PA, default=entry.data.get(CONF_HDMI_PA, DEFAULT_HDMI_PA)
                 ): str,
+                vol.Optional(
+                    CONF_HDMI_LA, default=entry.data.get(CONF_HDMI_LA, DEFAULT_HDMI_LA)
+                ): int,
                 vol.Optional(
                     CONF_TV_ADDR, default=entry.data.get(CONF_TV_ADDR, DEFAULT_TV_ADDR)
                 ): int,
