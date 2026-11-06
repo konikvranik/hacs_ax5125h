@@ -236,8 +236,23 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
     async def test_input_hdmi(self):
         t = FakeTransport()
         c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c.data["power"] = "on"                 # bar živý → jen jeden rámec
         await c.async_set_input("hdmi")
         self.assertEqual(t.sent[-1], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(c.data["input"], "hdmi")
+
+    async def test_input_hdmi_while_off_reasserts(self):
+        """(b) #21: Active Source probudí bar, ale TV ho do ~1 s stáhne do
+        ARC — po doběhnutí handshake jde re-assert, ať volba HDMI vyhraje."""
+        t = FakeTransport()
+        c = make_client(t, hdmi_pa=(0x31, 0x00))
+        c.data["power"] = "standby"
+        c.t_wake_settle = 0.05
+        await c.async_set_input("hdmi")
+        as_frames = [p for p in t.sent if p[2][:1] == [0x82]]
+        self.assertEqual(len(as_frames), 2)
+        self.assertEqual(as_frames[0], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(as_frames[1], (GW, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["input"], "hdmi")
 
     async def test_active_source_push_updates_input(self):
@@ -430,15 +445,19 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
         t = FakeTransport(awake)
         c = make_client(t)
+        c.t_wake_settle = 0.05
         await c.async_start()
         await c.async_power_on()
         # SAM terminate (odlepení ze zaseknutého stavu) + UCP pár
         self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
         self.assertEqual(t.sent[1], (0, SB, [0x44, 0x6D]))
         self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
-        self.assertEqual(len(t.sent), 3)               # žádný traffic navíc
+        # (b) #21: probuzení potvrzeno → re-assert Active Source na HDMI,
+        # ať ON nekončí v ARC (TV probuzený bar stáhne do ARC do ~1 s)
+        self.assertEqual(t.sent[3], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(len(t.sent), 4)
         self.assertEqual(c.data["power"], "on")
-        self.assertEqual(c.data["input"], "arc")
+        self.assertEqual(c.data["input"], "hdmi")
 
     async def test_power_on_failed_reverts_to_standby(self):
         """Pasivní verifikace: žádná reakce baru → optimistické on se

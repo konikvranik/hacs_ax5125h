@@ -129,6 +129,10 @@ class EzplayClient:
         self.t_item = 2.0     # A2 -> A4
         self.t_support = 2.0  # 0x90 -> 0x91
         self.t_rtvr = 2.0     # RTVR SetState -> ReportState
+        #: pauza po probuzení, než jde re-assert Active Source na HDMI (s) —
+        #: TV stáhne probuzený bar do ARC do ~1 s (Test B #21), handshake
+        #: doběhne do ~2 s; re-assert až potom směrování přepíše
+        self.t_wake_settle = 3.0
         #: Poslední známý stav (aktualizuje se i push zprávami A5/0x82).
         self.data: dict = {}
 
@@ -488,10 +492,28 @@ class EzplayClient:
             await self._send(self._tv_addr, self._sb_addr,
                              ez.sam_request_frame())
         elif which == "hdmi":
+            was_off = self.data.get("power") != "on"
             await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
+            if was_off and self.rx_capable:
+                # Active Source probudí bar → TV ho do ~1 s stáhne do ARC
+                # (#21) — po doběhnutí handshake re-assert, ať volba vyhraje
+                await self._reassert_hdmi()
+                return
         else:
             raise ValueError(f"neznámý vstup: {which}")
         self.data["input"] = which
+
+    async def _reassert_hdmi(self) -> None:
+        """Jeden Active Source rámec na HDMI IN po probuzení — volba
+        uživatele (b), měření #21: TV stáhne probuzený bar do ARC do ~1 s
+        bez ohledu na zdroj probuzení (Test B: UCP z Kodi adresy → C3/C0/C1
+        za 1,5 s). Active Source po doběhnutí ARC handshake směrování
+        přepíše (živě: 00:58:40 Routing Change na 3.1.0.0)."""
+        await asyncio.sleep(self.t_wake_settle)
+        await self._send(self._gw_addr, 0xF,
+                         ez.active_source_frame(self._hdmi_pa))
+        self.data["input"] = "hdmi"
+        self._notify()
 
     async def async_power_on(self) -> None:
         """Zapne soundbar: SAM-terminate (odlepení ze zaseknutého SAM-on
@@ -527,7 +549,11 @@ class EzplayClient:
                 "power ON nepotvrzen (žádná reakce baru) — vracím standby"
             )
             self.data["power"] = "standby"
-        self._notify()
+            self._notify()
+            return
+        # probuzení potvrzeno → (b): jeden Active Source po doběhnutí ARC
+        # handshake, ať ON skončí na primárním HDMI, ne v ARC (#21)
+        await self._reassert_hdmi()
 
     async def async_power_off(self) -> None:
         """Převede soundbar do standby: SAM Request terminate (uvolní ARC/SAM

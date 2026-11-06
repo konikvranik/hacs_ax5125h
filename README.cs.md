@@ -140,6 +140,11 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
     volume/mute), `90:01` standby report
   - v aktivním okně (10 min od posledního příkazu/pushu) pollí integrace
     volume/EQ normálně; potom **nula dotazů** až do další události
+- **Probuzení končí na HDMI** (0.7.5): probuzený bar stáhne TV do ARC do
+  ~1 s bez ohledu na zdroj probuzení (živě změřeno); po doběhnutí ARC
+  handshake (~3 s) pošle integrace **jeden** rámec Active Source na port
+  HDMI IN — takže ZAP i volba HDMI ve vypnutém stavu končí na primárním
+  HDMI vstupu.
 - Známé limity: vypnutí IR ovladačem (mimo HA) se zachytí jen pokud bar vyšle
   standby report; po restartu HA je stav *neznámý* do první události nebo
   příkazu.
