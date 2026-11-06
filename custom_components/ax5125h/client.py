@@ -505,10 +505,11 @@ class EzplayClient:
 
     async def async_power_on(self) -> None:
         """Zapne soundbar:
-        - pro vstup HDMI: Active Source na port HDMI IN za gateway (0xE) +
-          UCP Power On přímo na soundbar (0xE -> 5); TV o ničem neví a
-          soundbar startuje do HDMI IN bez pokusu o ARC.
-        - pro vstup ARC: SAM-terminate/request na TV + UCP Power On od TV (0).
+        - pro vstup HDMI: Report ARC Initiated (0xC1) od TV přímo na soundbar
+          (0 -> 5) fyzicky sepne hlavní napájení (SMPS) a rozsvítí displej,
+          aniž by probudil TV + Active Source na port HDMI IN za gateway (0xE),
+          čímž soundbar přepne na HDMI IN.
+        - pro vstup ARC: Report ARC Initiated + SAM Request + UCP Power On od TV.
         Verifikace je PASIVNÍ — žádné další dotazy: pokud do 8 s
         nepřijde žádný spontánní rámec (72:01/7A/…), probuzení se nepovedlo
         a stav se poctivě vrací na standby.
@@ -521,16 +522,16 @@ class EzplayClient:
         is_hdmi = self.data.get("input") == "hdmi"
         if is_hdmi:
             self._wake_input = "hdmi"
+            await self._send(
+                self._tv_addr, self._sb_addr, ez.report_arc_initiated_frame()
+            )
+            await asyncio.sleep(0.2)
             await self._send(self._gw_addr, 0xF, ez.active_source_frame(self._hdmi_pa))
-            await self._send(
-                self._gw_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)
-            )
-            await asyncio.sleep(0.15)
-            await self._send(
-                self._gw_addr, self._sb_addr, ez.user_control_released(ez.UCP_POWER_ON)
-            )
         else:
             self._wake_input = "arc"
+            await self._send(
+                self._tv_addr, self._sb_addr, ez.report_arc_initiated_frame()
+            )
             await self._send(self._tv_addr, self._sb_addr, ez.sam_request_frame())
             await self._send(
                 self._tv_addr, self._sb_addr, ez.user_control_pressed(ez.UCP_POWER_ON)

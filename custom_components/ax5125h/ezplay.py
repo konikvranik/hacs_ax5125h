@@ -36,6 +36,9 @@ OP_GIVE_AUDIO_STATUS = 0x71
 # 0x7D je System Audio Mode Status — stará hodnota 0x7D nikdy nedorazila,
 # takže volume/mute zůstávaly navždy unknown.
 OP_REPORT_AUDIO_STATUS = 0x7A
+OP_INITIATE_ARC = 0xC0
+OP_REPORT_ARC_INITIATED = 0xC1
+OP_REPORT_ARC_TERMINATED = 0xC2
 
 HISENSE_OUI = (0xA8, 0x82, 0x00)
 
@@ -159,6 +162,11 @@ def give_power_status_frame() -> list[int]:
 
 def standby_frame() -> list[int]:
     return [OP_STANDBY]
+
+
+def report_arc_initiated_frame() -> list[int]:
+    """Report ARC Initiated (0xC1) — TV potvrzení soundbaru, které ho fyzicky probudí."""
+    return [OP_REPORT_ARC_INITIATED]
 
 
 def give_audio_status_frame() -> list[int]:

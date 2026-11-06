@@ -33,13 +33,20 @@ async def async_setup_entry(
     )
 
 
-class PowerSwitch(AxEntity, SwitchEntity):
+class PowerSwitch(AxEntity, SwitchEntity, RestoreEntity):
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_translation_key = "power"
     _attr_icon = "mdi:power"
 
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, translation_key="power")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.sb_data.get("power") is None:
+            last = await self.async_get_last_state()
+            if last is not None and last.state in ("on", "off"):
+                self.coordinator.client.data["power"] = "on" if last.state == "on" else "standby"
 
     @property
     def is_on(self) -> bool | None:

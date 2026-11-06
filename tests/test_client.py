@@ -243,10 +243,11 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
 
     async def test_input_hdmi_while_off_wakes_on_hdmi(self):
         """Volba HDMI při vypnutém soundbaru ho rovnou probudí na HDMI IN:
-        Active Source z gatewaye + UCP Power On přímo na soundbar (0xE -> 5).
+        Report ARC Initiated (0xC1) přímo na soundbar (0 -> 5) sepne SMPS
+        a rozsvítí displej + Active Source z gatewaye přepne na HDMI IN.
         TV (0) o ničem neví a neprobudí se."""
         def awake(src, dst, payload):
-            if payload[0] == 0x44 and payload[1] == 0x6D:
+            if payload[0] == 0xC1:
                 return (SB, 15, [0x72, 0x01])          # probuzený bar: SAM on
             return None
 
@@ -255,13 +256,12 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c.data["power"] = "standby"
         await c.async_start()
         await c.async_set_input("hdmi")
-        self.assertEqual(len(t.sent), 3)
-        self.assertEqual(t.sent[0], (GW, 0xF, [0x82, 0x31, 0x00]))
-        self.assertEqual(t.sent[1], (GW, SB, [0x44, 0x6D]))
-        self.assertEqual(t.sent[2], (GW, SB, [0x45, 0x6D]))
+        self.assertEqual(len(t.sent), 2)
+        self.assertEqual(t.sent[0], (0, SB, [0xC1]))
+        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "hdmi")
-        # Žádný rámec neodešel TV (0)
+        # Žádný rámec neodešel TV (0) jako cíl
         self.assertFalse(any(dst == 0 for _, dst, _ in t.sent))
 
     async def test_active_source_push_updates_input(self):
@@ -443,12 +443,9 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t.sent[1], (0, SB, [0x45, 0x41]))
 
     async def test_power_on(self):
-        """Power ON = UCP Power On (0x44 0x6D + 0x45 0x6D) — jediný dvakrát
-        živě ověřený deep-standby wake; PASIVNÍ verifikace: probuzený bar
-        broadcastuje 72:01 (SAM on, živě) → on zůstává. Žádné další dotazy
-        (probuzený/uspávaný bar nesmí dostat traffic)."""
+        """Power ON ARC = Report ARC Initiated (0xC1) + SAM terminate + UCP pár."""
         def awake(src, dst, payload):
-            if payload[0] == 0x44 and payload[1] == 0x6D:
+            if payload[0] == 0xC1:
                 return (SB, 15, [0x72, 0x01])          # probuzený bar: SAM on
             return None
 
@@ -456,11 +453,11 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        # SAM terminate (odlepení ze zaseknutého stavu) + UCP pár
-        self.assertEqual(t.sent[0], (0, SB, [0x70, 0x00, 0x00]))
-        self.assertEqual(t.sent[1], (0, SB, [0x44, 0x6D]))
-        self.assertEqual(t.sent[2], (0, SB, [0x45, 0x6D]))
-        self.assertEqual(len(t.sent), 3)               # žádný traffic navíc
+        self.assertEqual(t.sent[0], (0, SB, [0xC1]))
+        self.assertEqual(t.sent[1], (0, SB, [0x70, 0x00, 0x00]))
+        self.assertEqual(t.sent[2], (0, SB, [0x44, 0x6D]))
+        self.assertEqual(t.sent[3], (0, SB, [0x45, 0x6D]))
+        self.assertEqual(len(t.sent), 4)
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "arc")
 
@@ -472,26 +469,27 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         await c.async_start()
         await c.async_power_on()
         self.assertEqual(c.data["power"], "standby")
-        self.assertEqual(len(t.sent), 3)               # SAM term. + UCP pár
+        self.assertEqual(len(t.sent), 4)
 
     async def test_power_on_rx_less(self):
-        """rx-less transport: jen UCP pár, optimisticky on."""
+        """rx-less transport: optimisticky on."""
         t = FakeTransport(None)
         t.supports_rx = False
         c = make_client(t)
         await c.async_start()
         await c.async_power_on()
-        self.assertEqual(t.sent, [(0, SB, [0x70, 0x00, 0x00]),
+        self.assertEqual(t.sent, [(0, SB, [0xC1]),
+                                  (0, SB, [0x70, 0x00, 0x00]),
                                   (0, SB, [0x44, 0x6D]),
                                   (0, SB, [0x45, 0x6D])])
         self.assertEqual(c.data["power"], "on")
 
     async def test_power_on_hdmi(self):
-        """Power ON když je cílový/poslední vstup HDMI: probuzení proběhne
-        přes gateway (0xE) na HDMI IN bez SAM requestu na TV (0).
-        SAM on broadcast (72:01) nepřepíše vstup na ARC."""
+        """Power ON když je cílový/poslední vstup HDMI: Report ARC Initiated
+        přímo na soundbar + Active Source na HDMI IN za gateway (0xE).
+        TV (0) o ničem neví a neprobudí se."""
         def awake(src, dst, payload):
-            if payload[0] == 0x44 and payload[1] == 0x6D:
+            if payload[0] == 0xC1:
                 return (SB, 15, [0x72, 0x01])          # probuzený bar: SAM on
             return None
 
@@ -500,14 +498,12 @@ class TestInputsAndPush(unittest.IsolatedAsyncioTestCase):
         c.data["input"] = "hdmi"
         await c.async_start()
         await c.async_power_on()
-        # Active Source + UCP od gatewaye, ŽÁDNÝ SAM request od TV
-        self.assertEqual(t.sent[0], (GW, 0xF, [0x82, 0x31, 0x00]))
-        self.assertEqual(t.sent[1], (GW, SB, [0x44, 0x6D]))
-        self.assertEqual(t.sent[2], (GW, SB, [0x45, 0x6D]))
-        self.assertEqual(len(t.sent), 3)
+        self.assertEqual(t.sent[0], (0, SB, [0xC1]))
+        self.assertEqual(t.sent[1], (GW, 0xF, [0x82, 0x31, 0x00]))
+        self.assertEqual(len(t.sent), 2)
         self.assertEqual(c.data["power"], "on")
         self.assertEqual(c.data["input"], "hdmi")
-        # Žádný rámec neodešel TV (0)
+        # Žádný rámec neodešel TV (0) jako cíl
         self.assertFalse(any(dst == 0 for _, dst, _ in t.sent))
 
     async def test_source_pressed_cycles_inputs(self):

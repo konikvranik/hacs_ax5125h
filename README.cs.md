@@ -123,9 +123,10 @@ Items: 1=EQ (0–6), 2=BASS, 3=TREBLE (−5…+5), 4=DIMMER (1–4), 5=SURROUND 
 ## Zapnutí / vypnutí a stav napájení (0.7.0 — eventový model, živě ověřeno)
 
 - **VYP** = CEC `<Standby>` (0x36), funguje spolehlivě.
-- **ZAP** = **UCP Power On** (`0x44 0x6D` + `0x45 0x6D`) — jediný rámec
-  živě ověřený jako wake z **hlubokého standby** (dvakrát ověřeno:
-  probuzený bar broadcastne SAM-on a pushne audio status). Verifikace je
+- **ZAP** = **Report ARC Initiated** (`0xC1`) od TV přímo na soundbar (0 -> 5)
+  fyzicky sepne hlavní napájení (SMPS) a rozsvítí displej, aniž by probudil TV.
+  Pro vstup HDMI IN následuje Active Source na HDMI IN za gateway (0xE),
+  pro ARC SAM Request od TV. Verifikace je
   **pasivní**: nepřijde-li do 8 s žádný rámec ze soundbaru, probuzení se
   nepovedlo a stav se poctivě vrací na *standby* — žádné další dotazy
   (jakýkoliv dotaz baru brání v auto-standby „BYE" → hluboký spánek).

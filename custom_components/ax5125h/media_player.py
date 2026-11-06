@@ -18,6 +18,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .client import EzplayError
 from .const import DOMAIN
@@ -46,7 +47,7 @@ async def async_setup_entry(
     async_add_entities([SoundbarMediaPlayer(coordinator)])
 
 
-class SoundbarMediaPlayer(AxEntity, MediaPlayerEntity):
+class SoundbarMediaPlayer(AxEntity, MediaPlayerEntity, RestoreEntity):
     """Soundbar jako media player: hlasitost (absolutní + kroky + mute),
     napájení a výběr zdroje (ARC/HDMI CEC přepne, OPT/AUX/USB/BT = deklarace
     stejně jako InputSelect)."""
@@ -64,6 +65,16 @@ class SoundbarMediaPlayer(AxEntity, MediaPlayerEntity):
     def __init__(self, coordinator: SoundbarCoordinator) -> None:
         super().__init__(coordinator, translation_key="soundbar")
         self._attr_source_list = list(INPUT_LABELS.values())
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.sb_data.get("power") is None:
+            last = await self.async_get_last_state()
+            if last is not None:
+                if last.state == MediaPlayerState.ON:
+                    self.coordinator.client.data["power"] = "on"
+                elif last.state in (MediaPlayerState.STANDBY, MediaPlayerState.OFF):
+                    self.coordinator.client.data["power"] = "standby"
 
     @property
     def state(self) -> MediaPlayerState | None:

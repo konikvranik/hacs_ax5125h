@@ -62,6 +62,7 @@ class TestFrameBuilders(unittest.TestCase):
         self.assertEqual(ez.sam_request_frame(), [0x70, 0x00, 0x00])
         self.assertEqual(ez.active_source_frame((0x31, 0x00)), [0x82, 0x31, 0x00])
         self.assertEqual(ez.standby_frame(), [0x36])
+        self.assertEqual(ez.report_arc_initiated_frame(), [0xC1])
         # Set Stream Path = probuzení (živě ověřeno; research-log #12)
         self.assertEqual(ez.set_stream_path_frame((0x31, 0x00)), [0x86, 0x31, 0x00])
         self.assertEqual(ez.set_stream_path_frame((0x30, 0x00)), [0x86, 0x30, 0x00])
